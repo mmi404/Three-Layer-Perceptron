@@ -227,7 +227,17 @@ jobs:
         run: |
           set -e
           SHA=$(git rev-parse --short HEAD)
-          LIVE=$(curl -fsS --retry 5 --retry-delay 3 "http://$DEPLOY_HOST/health")
-          echo "$LIVE"
-          echo "$LIVE" | grep -q "\"version\":\"$SHA\""
-          echo "Deployed $SHA and confirmed live."
+          # Give Traefik time to register routes after deploy
+          for i in $(seq 1 15); do
+            LIVE=$(curl -fsS --max-time 10 "http://$DEPLOY_HOST/health" 2>/dev/null || echo "")
+            if echo "$LIVE" | grep -q "\"version\":\"$SHA\""; then
+              echo "$LIVE"
+              echo "Deployed $SHA and confirmed live."
+              exit 0
+            fi
+            echo "  attempt $i: waiting for $SHA on $DEPLOY_HOST..."
+            sleep 5
+          done
+          echo "FAILED: could not verify $SHA on http://$DEPLOY_HOST/health"
+          curl -sS "http://$DEPLOY_HOST/health" || true
+          exit 1
