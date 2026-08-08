@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Seat, Showtime } from '../types';
-import { Lock, Sparkles, AlertCircle, Clock, Zap, CheckCircle2, X } from 'lucide-react';
+import { Lock, Sparkles, Clock, Zap, CheckCircle2, ShoppingBag, ArrowRight } from 'lucide-react';
 
 interface SeatMapProps {
   showtime: Showtime;
@@ -10,6 +10,7 @@ interface SeatMapProps {
   heldUntil?: Date | null;
   onReleaseHold?: () => void;
   onProceedToCheckout?: () => void;
+  onProceedDirectPayment?: () => void;
   isHoldingSeat?: boolean;
 }
 
@@ -21,6 +22,7 @@ export const SeatMap: React.FC<SeatMapProps> = ({
   heldUntil,
   onReleaseHold,
   onProceedToCheckout,
+  onProceedDirectPayment,
   isHoldingSeat = false
 }) => {
   const [hoveredSeat, setHoveredSeat] = useState<Seat | null>(null);
@@ -72,7 +74,7 @@ export const SeatMap: React.FC<SeatMapProps> = ({
   };
 
   return (
-    <div className="glass-panel p-4 sm:p-8 rounded-3xl border border-white/10 shadow-2xl relative space-y-8">
+    <div className="glass-panel p-4 sm:p-8 rounded-3xl border border-white/10 shadow-2xl relative space-y-8 animate-fade-in">
       {/* Curved Screen Layout */}
       <div className="flex flex-col items-center justify-center space-y-2">
         <div className="w-full max-w-2xl h-10 rounded-t-full cinema-screen flex items-center justify-center relative overflow-hidden border-t-2 border-brand-500/60 shadow-2xl">
@@ -82,7 +84,7 @@ export const SeatMap: React.FC<SeatMapProps> = ({
           </span>
         </div>
         <p className="text-[10px] text-gray-400 uppercase tracking-widest font-mono">
-          All eyes facing screen • Sound tuned to Hall center
+          Click any seat to instantly lock • Direct atomic reservation
         </p>
       </div>
 
@@ -109,20 +111,20 @@ export const SeatMap: React.FC<SeatMapProps> = ({
                   return (
                     <button
                       key={seat.seat_id || seat.id || seatCode}
-                      disabled={status === 'BOOKED' || status === 'HELD' || isHoldingSeat}
+                      disabled={status === 'BOOKED' || status === 'HELD' || (isHoldingSeat && status !== 'SELECTED')}
                       onClick={() => onSelectSeat(seat)}
                       onMouseEnter={() => setHoveredSeat(seat)}
                       onMouseLeave={() => setHoveredSeat(null)}
                       className={`relative w-8 h-8 sm:w-10 sm:h-10 rounded-xl font-mono text-[11px] sm:text-xs font-bold transition-all duration-200 flex items-center justify-center ${
                         status === 'SELECTED'
-                          ? 'bg-gradient-to-tr from-brand-600 to-amber-400 text-white shadow-lg shadow-brand-500/50 scale-110 ring-2 ring-white/60'
+                          ? 'bg-gradient-to-tr from-brand-600 to-amber-400 text-white shadow-lg shadow-brand-500/50 scale-110 ring-2 ring-white/70 animate-pulse'
                           : status === 'BOOKED'
                           ? 'bg-dark-800/40 text-gray-600 border border-gray-800/80 cursor-not-allowed'
                           : status === 'HELD'
                           ? 'bg-amber-950/60 text-amber-500 border border-amber-500/40 cursor-not-allowed'
-                          : 'bg-dark-800/90 text-gray-200 border border-gray-700 hover:border-brand-400 hover:text-white hover:scale-105 hover:bg-dark-700'
+                          : 'bg-dark-800/90 text-gray-200 border border-gray-700 hover:border-brand-400 hover:text-white hover:scale-105 hover:bg-dark-700 active:scale-95'
                       }`}
-                      title={`Seat ${seatCode} - ${status}`}
+                      title={`Seat ${seatCode} - Click to hold`}
                     >
                       {status === 'HELD' ? (
                         <Lock className="w-3.5 h-3.5 text-amber-400" />
@@ -207,7 +209,7 @@ export const SeatMap: React.FC<SeatMapProps> = ({
                 )}
               </div>
               <p className="text-xs text-gray-400">
-                Seat is locked in Postgres with row-level serialization. Complete checkout before the timer expires.
+                Seat is reserved in Postgres with row-level serialization.
               </p>
             </div>
 
@@ -224,12 +226,21 @@ export const SeatMap: React.FC<SeatMapProps> = ({
               {onProceedToCheckout && (
                 <button
                   onClick={onProceedToCheckout}
-                  className="flex-1 sm:flex-none px-6 py-2.5 rounded-xl bg-gradient-to-r from-brand-600 via-brand-500 to-amber-500 hover:from-brand-500 hover:to-amber-400 text-white font-extrabold text-xs shadow-lg shadow-brand-500/30 flex items-center justify-center gap-2 transition transform hover:scale-105"
+                  className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-dark-800 hover:bg-dark-700 text-amber-300 font-bold text-xs border border-amber-500/40 shadow-sm flex items-center justify-center gap-1.5 transition"
+                  title="Add Popcorn & Drinks"
                 >
-                  <span>Proceed to Payment</span>
-                  <Zap className="w-3.5 h-3.5 text-amber-200" />
+                  <ShoppingBag className="w-3.5 h-3.5 text-amber-400" />
+                  <span>+ Snacks</span>
                 </button>
               )}
+
+              <button
+                onClick={onProceedDirectPayment || onProceedToCheckout}
+                className="flex-1 sm:flex-none px-6 py-2.5 rounded-xl bg-gradient-to-r from-brand-600 via-brand-500 to-amber-500 hover:from-brand-500 hover:to-amber-400 text-white font-extrabold text-xs shadow-lg shadow-brand-500/30 flex items-center justify-center gap-2 transition transform hover:scale-105 active:scale-95"
+              >
+                <span>Proceed to Payment</span>
+                <Zap className="w-3.5 h-3.5 text-amber-200" />
+              </button>
             </div>
           </div>
         </div>

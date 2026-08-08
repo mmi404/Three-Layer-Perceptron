@@ -37,7 +37,6 @@ export function App() {
   // Transactional Hold & Booking State
   const [activeHold, setActiveHold] = useState<Hold | null>(null);
   const [holdExpiresAt, setHoldExpiresAt] = useState<Date | null>(null);
-  const [activeBooking, setActiveBooking] = useState<Booking | null>(null);
   const [ticketWallet, setTicketWallet] = useState<Booking[]>([]);
 
   // Modals & Drawers
@@ -125,11 +124,11 @@ export function App() {
     }
   }, [viewMode, showtime.id, activeHold, loadSeats]);
 
-  // Handle seat selection and hold creation
+  // Instant seat selection and atomic hold creation
   const handleSelectSeat = async (seat: Seat) => {
-    if (activeHold) return;
-
     setSelectedSeat(seat);
+    const seatPrice = seat.price_cents ? Math.round(seat.price_cents / 100) : 450;
+    setTotalAmountPaid(seatPrice);
 
     try {
       const seatId = seat.seat_id || seat.id || seat.seat_code || 'seat-c5';
@@ -148,7 +147,7 @@ export function App() {
         const expires = res.expires_at ? new Date(res.expires_at) : new Date(Date.now() + 60000);
         setHoldExpiresAt(expires);
       } else {
-        // Fallback local hold simulation
+        // Fallback local hold
         const mockRef = `ref_${Date.now()}`;
         const mockHold: Hold = {
           booking_ref: mockRef,
@@ -163,13 +162,11 @@ export function App() {
         setHoldExpiresAt(new Date(Date.now() + 60000));
       }
     } catch (err: any) {
-      // Check for 409 Conflict
       if (err?.status === 409 || err?.api?.code === 'SEATS_UNAVAILABLE') {
-        alert('Seat is no longer available. Another customer just reserved this seat. Please pick another one.');
+        alert('Seat was just taken by another user in real-time. Please choose another seat.');
         loadSeats(showtime.id);
         setSelectedSeat(null);
       } else {
-        // Fallback local hold
         const seatId = seat.seat_id || seat.id || seat.seat_code || 'seat-c5';
         const mockRef = `cs_${Date.now().toString(36)}`;
         setActiveHold({
@@ -201,9 +198,14 @@ export function App() {
     loadSeats(showtime.id);
   };
 
-  // Proceed from SeatMap to Concessions
+  // Proceed to Concessions
   const handleProceedToConcessions = () => {
     setIsSnackModalOpen(true);
+  };
+
+  // Direct to Payment
+  const handleProceedDirectPayment = () => {
+    setIsPaymentModalOpen(true);
   };
 
   // Confirm Snacks and open Payment
@@ -331,6 +333,7 @@ export function App() {
               heldUntil={holdExpiresAt}
               onReleaseHold={handleReleaseHold}
               onProceedToCheckout={handleProceedToConcessions}
+              onProceedDirectPayment={handleProceedDirectPayment}
               isHoldingSeat={Boolean(activeHold)}
             />
           </div>
