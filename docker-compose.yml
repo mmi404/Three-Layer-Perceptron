@@ -231,6 +231,11 @@ services:
     networks: [internal]
 
   seed:
+    build:
+      context: ./services/api
+      target: runtime
+      args:
+        BUILD_SHA: ${BUILD_SHA:-dev}
     image: ${PROJECT_NAME:-cinemaseat}-app:${BUILD_SHA:-dev}
     command: ["node", "dist/db/seed.js"]
     restart: "no"
