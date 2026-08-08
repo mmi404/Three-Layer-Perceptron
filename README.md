@@ -55,6 +55,15 @@ graph TD
 
 **Three services we wrote** (`api`, `worker`, `web`), plus Traefik, Postgres, Redis, and the provided gateway. One `docker compose up`.
 
+> 📐 **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — the full set of figures: data model (ER),
+> seat/booking/payment state machines, the end-to-end request sequence, how 100
+> concurrent buyers resolve to one winner, the callback flow, failure isolation,
+> the CI/CD pipeline, deployment topology, and the alternatives we rejected.
+>
+> 🔍 **[docs/EDGE-CASES.md](docs/EDGE-CASES.md)** — what happens when things go wrong: the
+> concurrent-buyer walkthrough, why a stale seat map cannot cause an oversell,
+> and what we found reading the provided gateway's source code.
+
 ### Why these boundaries
 
 We split on **failure and scaling profiles**, not on domain nouns.
@@ -423,12 +432,25 @@ when pointed at localhost. Numbers here will be from the deployed instance.
 
 `.github/workflows/ci.yml` — one pipeline, change-aware.
 
-```
-changes ─┬─> test       (lint, typecheck, migrate, 42 tests vs real PG + Redis)
-         └─> web-build
-                 └─> stack   (compose up from clean clone, health, provenance,
-                              Scenario A, fault isolation)
-                        └─> deploy   (main branch only)
+```mermaid
+flowchart LR
+    DEV["push / PR"] --> CH["<b>changes</b><br/>paths-filter"]
+    CH -->|api| TEST["<b>test</b><br/>lint · typecheck · migrate<br/>42 tests vs <b>real</b> PG + Redis"]
+    CH -->|web| WEB["<b>web-build</b>"]
+    TEST --> ST
+    WEB --> ST
+    ST["<b>stack</b><br/>compose up from a clean clone, no .env<br/>health · provenance · seat map<br/><b>Scenario A: oversell 0</b> · fault isolation"]
+    ST --> G{"main?"}
+    G -->|PR| M["✅ merge gate"]
+    G -->|push to main| CD["<b>deploy</b> → ssh ./deploy.sh"]
+    CD --> V{"live /health SHA<br/>== built SHA?"}
+    V -->|yes| OK["🟢 confirmed live"]
+    V -->|no| NO["🔴 fail — stale image"]
+
+    classDef ok fill:#1e3a2a,stroke:#3a7a52,color:#d8f0e2;
+    classDef bad fill:#3a1e24,stroke:#7a3a48,color:#f0d8de;
+    class OK,M ok;
+    class NO bad;
 ```
 
 - CI runs on every push and on PRs to `main`; **nothing merges without it passing.**
@@ -474,13 +496,15 @@ Rate-limit counters live in Redis precisely because of this — in-process count
 Stated honestly.
 
 - **Scenario C numbers are not from the deployed instance yet.** The harness works and finds a knee, but every run so far has been on a dev box where the load generator competes with the API for the same CPUs — which the problem statement rightly says measures the wrong thing. Our expectation is the Postgres connection pool first (10 per replica), then hot-row contention; an untested expectation is worth nothing, so we are not claiming it as a result.
-- **Job queue is at-most-once.** A job popped by a worker that then crashes is lost. At-least-once needs `BRPOPLPUSH` onto a processing list plus an ack. Only refunds use the queue, and they are also retried by the reconciler, so nothing is silently dropped in practice.
+- ~~`lib/queue.ts` is unused scaffolding.~~ **Deleted.** We'd built a small Redis job queue as the `api`→`worker` seam and never needed it — refunds are driven by polling `payments WHERE status = 'REFUND_PENDING'`, written *inside* the callback transaction, which is a transactional outbox and strictly more durable than a queue.
 - **Rate limiting uses a fixed window**, which permits a 2× burst across a window boundary.
 - **The circuit breaker is per-process.** With three replicas each trips independently, so a dead gateway costs up to 3×3 slow calls instead of 3. A Redis-backed breaker would fix it.
 - **Migrations are forward-only.** No down migrations; a rollback means restoring from a backup, and we have no automated backups.
 - **No distributed tracing.** Structured logs with request IDs and Prometheus metrics exist; there is no OpenTelemetry span propagation, so cross-service latency attribution is manual.
 - **No authentication.** Anyone with a booking reference can act on it. Real deployment needs accounts and ownership checks; we scoped it out to protect the correctness work.
 - **Seat map polls every 2 s** rather than pushing. A user can see a seat as available up to ~2 s after someone takes it — they then get a clean `409`, which is correct but not instant.
+
+> **[docs/ARCHITECTURE.md §15](docs/ARCHITECTURE.md#15-where-it-breaks) is the complete and authoritative list.** We reviewed our own code against a failure catalogue, found 25 issues including one critical one (the duplicate-callback ledger committing separately from the state change it guards — money could be taken with no ticket issued), and fixed 23 of them with new tests (42 → 61 passing). Two remain open by deliberate choice, not oversight, and are named there.
 
 ---
 

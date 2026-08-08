@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { pool, query, waitForDatabase } from '../../lib/db';
 import { AppError } from '../../lib/errors';
-import { holdSeats, sweepExpiredHolds } from './booking.repo';
+import { holdSeats, sweepExpiredHolds, releaseHold } from './booking.repo';
 
 /**
  * ============================================================================
@@ -243,4 +243,140 @@ describe('abandoned holds', () => {
     );
     expect(booking.status).toBe('EXPIRED');
   });
+});
+
+describe('idempotent holds (F19)', () => {
+  it('replays the SAME booking for a repeated Idempotency-Key instead of fighting its own prior hold', async () => {
+    await resetSeats();
+    const seat = seatIds[0];
+    const key = `idem-${Date.now()}`;
+
+    const first = await holdSeats(
+      { showtime_id: showtimeId, seat_ids: [seat], phone: '+8801799990000' },
+      120,
+      key,
+    );
+    expect(first.replayed).toBeFalsy();
+
+    const second = await holdSeats(
+      { showtime_id: showtimeId, seat_ids: [seat], phone: '+8801799990000' },
+      120,
+      key,
+    );
+    expect(second.replayed).toBe(true);
+    expect(second.booking_ref).toBe(first.booking_ref);
+
+    const [{ count }] = await query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM bookings WHERE idempotency_key = $1`,
+      [key],
+    );
+    expect(count).toBe('1');
+  });
+
+  it('resolves two SIMULTANEOUS requests with the same key to one booking, not a 409 between them', async () => {
+    await resetSeats();
+    const seat = seatIds[1];
+    const key = `idem-race-${Date.now()}`;
+
+    const results = await Promise.allSettled([
+      holdSeats({ showtime_id: showtimeId, seat_ids: [seat], phone: '+8801799991111' }, 120, key),
+      holdSeats({ showtime_id: showtimeId, seat_ids: [seat], phone: '+8801799991111' }, 120, key),
+    ]);
+
+    const fulfilled = results
+      .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof holdSeats>>> => r.status === 'fulfilled')
+      .map((r) => r.value);
+    expect(fulfilled).toHaveLength(2);
+    expect(fulfilled[0].booking_ref).toBe(fulfilled[1].booking_ref);
+
+    const [{ count }] = await query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM bookings WHERE idempotency_key = $1`,
+      [key],
+    );
+    expect(count).toBe('1');
+  });
+
+  it('a DIFFERENT key is a genuinely new, independent hold attempt', async () => {
+    await resetSeats();
+    const seat = seatIds[2];
+
+    const a = await holdSeats(
+      { showtime_id: showtimeId, seat_ids: [seat], phone: '+8801799992222' },
+      -5, // already-expired, so the second call is free to claim it
+      'idem-a',
+    );
+    const b = await holdSeats(
+      { showtime_id: showtimeId, seat_ids: [seat], phone: '+8801799993333' },
+      120,
+      'idem-b',
+    );
+    expect(b.booking_ref).not.toBe(a.booking_ref);
+  });
+});
+
+describe('release on request (F21)', () => {
+  it('returns a held seat immediately, and a new buyer can claim it without waiting out the TTL', async () => {
+    await resetSeats();
+    const seat = seatIds[0];
+
+    const held = await holdSeats(
+      { showtime_id: showtimeId, seat_ids: [seat], phone: '+8801799994444' },
+      120, // long TTL — the point is that release does not wait for it
+    );
+
+    const { released, showtimeId: releasedShowtime } = await releaseHold(held.booking_ref);
+    expect(released).toBe(true);
+    expect(releasedShowtime).toBe(showtimeId);
+
+    const [row] = await query<{ status: string; booking_id: string | null }>(
+      `SELECT status, booking_id FROM show_seats WHERE showtime_id=$1 AND seat_id=$2`,
+      [showtimeId, seat],
+    );
+    expect(row.status).toBe('AVAILABLE');
+    expect(row.booking_id).toBeNull();
+
+    const [booking] = await query<{ status: string }>(
+      `SELECT status FROM bookings WHERE booking_ref = $1`,
+      [held.booking_ref],
+    );
+    expect(booking.status).toBe('EXPIRED');
+
+    // Immediately claimable — no TTL wait required.
+    const next = await holdSeats(
+      { showtime_id: showtimeId, seat_ids: [seat], phone: '+8801799995555' },
+      120,
+    );
+    expect(next.booking_ref).not.toBe(held.booking_ref);
+  });
+
+  it('is a clean no-op result for a booking that is not a live hold', async () => {
+    const { released } = await releaseHold('bk_000000000000');
+    expect(released).toBe(false);
+  });
+});
+
+describe('lock timeout (F8)', () => {
+  it('gives up with 55P03 after ~2s rather than queuing on a row lock forever', async () => {
+    await resetSeats();
+    const seat = seatIds[0];
+
+    // Hold the row lock manually, on a separate connection, and never commit
+    // — simulating whatever pathological case would otherwise pin a request
+    // (and the pool connection it holds) indefinitely.
+    const locker = await pool.connect();
+    await locker.query('BEGIN');
+    await locker.query(
+      `SELECT 1 FROM show_seats WHERE showtime_id=$1 AND seat_id=$2 FOR UPDATE`,
+      [showtimeId, seat],
+    );
+
+    try {
+      await expect(
+        holdSeats({ showtime_id: showtimeId, seat_ids: [seat], phone: '+8801799997777' }, 120),
+      ).rejects.toMatchObject({ code: '55P03' });
+    } finally {
+      await locker.query('ROLLBACK');
+      locker.release();
+    }
+  }, 10_000);
 });

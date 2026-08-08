@@ -34,22 +34,40 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
   return res.rows;
 }
 
-/** Run several statements atomically. */
+/**
+ * 40001 = serialization_failure, 40P01 = deadlock_detected. Both mean
+ * Postgres aborted OUR transaction to break a conflict — not that anything
+ * is broken. Retrying is safe here specifically because no network call ever
+ * happens inside a transaction: `fn` re-executes as a clean, self-contained
+ * unit with no external side effect to duplicate.
+ */
+const RETRYABLE_PG_CODES = new Set(['40001', '40P01']);
+const MAX_TX_ATTEMPTS = 3;
+
+/** Run several statements atomically, retrying on deadlock/serialization conflicts. */
 export async function withTransaction<T>(
   fn: (client: PoolClient) => Promise<T>,
 ): Promise<T> {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const result = await fn(client);
-    await client.query('COMMIT');
-    return result;
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
+  for (let attempt = 1; attempt <= MAX_TX_ATTEMPTS; attempt++) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await fn(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      const code = (err as { code?: string }).code;
+      const retryable = !!code && RETRYABLE_PG_CODES.has(code) && attempt < MAX_TX_ATTEMPTS;
+      if (!retryable) throw err;
+      logger.warn({ code, attempt }, 'Transaction aborted on conflict, retrying');
+    } finally {
+      client.release();
+    }
+    await new Promise((r) => setTimeout(r, 20 * attempt));
   }
+  /* istanbul ignore next — unreachable: the loop always returns or throws */
+  throw new Error('withTransaction: unreachable');
 }
 
 /**

@@ -1,4 +1,5 @@
-import { Router } from 'express';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import { Router, type Request } from 'express';
 import { asyncHandler } from '../../middleware/errorHandler';
 import { otpSendRateLimit, otpVerifyRateLimit } from '../../middleware/rateLimit';
 import { bookingRefParam } from '../booking/booking.schema';
@@ -79,14 +80,50 @@ paymentRouter.post(
 export const gatewayCallbackRouter = Router();
 
 /**
+ * F6 — the gateway HMAC-SHA256 signs every callback as X-Signature (default
+ * secret documented as z2p-2026-secret). Without this, anyone who can reach
+ * the endpoint can forge a SUCCEEDED callback and confirm a booking that was
+ * never paid for.
+ *
+ * The HMAC is over the exact bytes on the wire, which is why app.ts's
+ * express.json() stashes them onto req.rawBody via its `verify` hook — a
+ * re-serialised JS object is not guaranteed to reproduce the original bytes.
+ *
+ * A missing/invalid signature still gets 200 (never 401): a non-200 tells
+ * the gateway delivery failed and it retries up to 8 times, which would turn
+ * one forged or misconfigured request into a flood, exactly like a parse
+ * failure does below.
+ */
+function hasValidSignature(req: Request): boolean {
+  const signature = req.header('x-signature');
+  const raw = (req as Request & { rawBody?: Buffer }).rawBody;
+  if (!signature || !raw) return false;
+
+  const expected = createHmac('sha256', env.GATEWAY_SECRET).update(raw).digest('hex');
+  const a = Buffer.from(signature);
+  const b = Buffer.from(expected);
+  // Lengths must match before timingSafeEqual will even accept the buffers,
+  // and that length check is itself constant-time-irrelevant (it leaks
+  // nothing an attacker doesn't already know: the hex-encoded length of a
+  // SHA-256 HMAC never varies).
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/**
  * POST /api/v1/gateway/callback
  *
- * ALWAYS 200. A parse error here would otherwise turn one bad message into a
- * flood of retries.
+ * ALWAYS 200. A parse error, or a bad signature, here would otherwise turn
+ * one bad message into a flood of retries.
  */
 gatewayCallbackRouter.post(
   '/callback',
   asyncHandler(async (req, res) => {
+    if (!hasValidSignature(req)) {
+      logger.warn({ requestId: req.id }, 'Callback signature missing or invalid; ignoring');
+      res.status(200).json({ received: true, applied: false });
+      return;
+    }
+
     const parsed = gatewayCallbackSchema.safeParse(req.body);
 
     if (!parsed.success) {

@@ -1,6 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import client from 'prom-client';
-import { queueDepth } from '../../lib/queue';
+import { circuitState } from '../../lib/gateway';
 
 /**
  * Prometheus metrics — the "Monitoring & Observability" bonus, for ~30 lines.
@@ -56,19 +56,19 @@ export const callbacksTotal = new client.Counter({
   registers: [registry],
 });
 
-const jobsQueued = new client.Gauge({
-  name: 'jobs_queued',
-  help: 'Jobs currently waiting in the queue',
+// F25: this used to report the depth of a Redis job queue that was never
+// actually used (refunds are driven by polling the database, not a queue —
+// see worker.ts). Replaced with something that IS load-bearing: the gateway
+// circuit breaker's state, which ties directly to the fault-isolation story.
+const gatewayCircuitState = new client.Gauge({
+  name: 'gateway_circuit_state',
+  help: '0 = closed, 1 = half-open, 2 = open (gateway circuit breaker)',
   registers: [registry],
-  async collect() {
-    try {
-      this.set(await queueDepth());
-    } catch {
-      /* Redis down — leave the previous value rather than crash /metrics */
-    }
+  collect() {
+    this.set({ closed: 0, 'half-open': 1, open: 2 }[circuitState()]);
   },
 });
-void jobsQueued;
+void gatewayCircuitState;
 
 /** Mount BEFORE routes so every request is timed. */
 export function metricsMiddleware(req: Request, res: Response, next: NextFunction): void {

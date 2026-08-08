@@ -44,13 +44,26 @@ describe('callback decisions', () => {
     expect(decideCallback('REFUNDED', 'FAILED')).toBe('IGNORE');
   });
 
+  it('records a REFUNDED callback for a refund we issued (F24)', () => {
+    // Previously dead code: both arms returned IGNORE, so a webhook-confirmed
+    // refund never closed out the payment row.
+    expect(decideCallback('REFUND_PENDING', 'REFUNDED')).toBe('REFUND_DONE');
+  });
+
+  it('ignores a REFUNDED callback we were not expecting', () => {
+    expect(decideCallback('SUCCEEDED', 'REFUNDED')).toBe('IGNORE');
+    expect(decideCallback('REFUNDED', 'REFUNDED')).toBe('IGNORE');
+  });
+
   it('is total — every state/callback pair has a defined action', () => {
     const states: PaymentStatus[] = [
       'INITIATED', 'PENDING', 'SUCCEEDED', 'FAILED', 'REFUND_PENDING', 'REFUNDED',
     ];
     for (const s of states) {
       for (const c of ['SUCCEEDED', 'FAILED', 'REFUNDED'] as const) {
-        expect(['CONFIRM', 'FAIL', 'IGNORE', 'REFUND']).toContain(decideCallback(s, c));
+        expect(['CONFIRM', 'FAIL', 'IGNORE', 'REFUND', 'REFUND_DONE']).toContain(
+          decideCallback(s, c),
+        );
       }
     }
   });

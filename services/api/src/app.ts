@@ -40,7 +40,19 @@ export function createApp() {
   );
 
   // Body size cap — without this, a 500 MB JSON body is a free DoS.
-  app.use(express.json({ limit: '100kb' }));
+  //
+  // `verify` stashes the exact raw bytes onto req.rawBody. The gateway callback
+  // route (F6) needs those, not the re-serialised object, to check X-Signature:
+  // HMAC is computed over bytes-on-the-wire, and re-serialising JSON is not
+  // guaranteed to reproduce them byte-for-byte (key order, spacing).
+  app.use(
+    express.json({
+      limit: '100kb',
+      verify: (req, _res, buf) => {
+        (req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+      },
+    }),
+  );
   app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
   app.use(

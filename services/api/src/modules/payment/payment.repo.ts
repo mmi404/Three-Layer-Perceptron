@@ -4,6 +4,11 @@ import { Conflict, NotFound } from '../../lib/errors';
 import { logger } from '../../lib/logger';
 import { decideCallback, type CallbackAction, type CallbackStatus, type PaymentStatus } from './payment.rules';
 
+/** Bound on every sweep batch (F10), same reasoning as booking.repo.ts. */
+export const SWEEP_BATCH_SIZE = 500;
+/** A refund that fails this many times permanently stops retrying (see markRefundFailed). */
+export const MAX_REFUND_ATTEMPTS = 5;
+
 // --- Starting a payment -------------------------------------------------------
 
 export type PaymentStart = {
@@ -157,46 +162,54 @@ export async function abandonPayment(
 
 // --- Callback -----------------------------------------------------------------
 
-/**
- * The dedupe gate. Returns false if we have seen this event_id before.
- *
- * A primary key, not a SELECT-then-INSERT: two replicas can receive the same
- * duplicate simultaneously and exactly one of them will win the insert.
- */
-export async function recordEventIfNew(
-  eventId: string,
-  bookingRef: string | null,
-  status: string | null,
-  payload: unknown,
-): Promise<boolean> {
-  const rows = await query<{ event_id: string }>(
-    `INSERT INTO payment_events (event_id, booking_ref, status, payload)
-     VALUES ($1, $2, $3, $4::jsonb)
-     ON CONFLICT (event_id) DO NOTHING
-     RETURNING event_id`,
-    [eventId, bookingRef, status, JSON.stringify(payload)],
-  );
-  return rows.length > 0;
-}
-
-export type CallbackOutcome = {
+export type CallbackResult = {
+  duplicate: boolean;
   action: CallbackAction;
   showtimeId: string | null;
   gatewayPaymentId: string | null;
 };
 
 /**
- * Apply a (already de-duplicated) callback.
+ * Record the callback's idempotency key AND apply its effect, in ONE
+ * transaction. (F4 — this used to be two separate operations: an autocommit
+ * INSERT into payment_events, then a second transaction deciding what to do.
+ * A crash or a thrown error between them left the event_id permanently
+ * marked "seen" with nothing applied — the gateway's retry was then silently
+ * deduped away forever, and a payment could be taken with no ticket ever
+ * issued and no refund ever triggered. Doing both under one transaction
+ * means a rollback also un-marks the event, so the retry does the right
+ * thing instead of being swallowed.)
  *
- * Everything happens under a row lock on the payment, so two different events
- * for the same booking cannot interleave and produce a half-applied state.
+ * The payment row is matched by `gateway_payment_id` when the callback
+ * supplies one AND we have already attached it to a row; otherwise by
+ * `booking_ref`, most recent first (F5b — this correctly falls back for the
+ * documented `race` mode, where the callback can arrive with a payment_id
+ * before `/charge` has returned and attached it to our row yet. Matching
+ * strictly by ID once it IS known also stops an unrelated older payment
+ * attempt on the same booking from being mistaken for the current one).
  */
-export async function applyCallback(
-  bookingRef: string,
-  incoming: CallbackStatus,
+export async function recordAndApplyCallback(
+  eventId: string,
+  bookingRef: string | null,
+  status: string | null,
   gatewayPaymentId: string | null,
-): Promise<CallbackOutcome> {
+  payload: unknown,
+): Promise<CallbackResult> {
   return withTransaction(async (c) => {
+    const ins = await c.query<{ event_id: string }>(
+      `INSERT INTO payment_events (event_id, booking_ref, status, payload)
+       VALUES ($1, $2, $3, $4::jsonb)
+       ON CONFLICT (event_id) DO NOTHING
+       RETURNING event_id`,
+      [eventId, bookingRef, status, JSON.stringify(payload)],
+    );
+    if (ins.rowCount === 0) {
+      return { duplicate: true, action: 'IGNORE', showtimeId: null, gatewayPaymentId: null };
+    }
+    if (!bookingRef || !status) {
+      return { duplicate: false, action: 'IGNORE', showtimeId: null, gatewayPaymentId: null };
+    }
+
     const found = await c.query<{
       id: string;
       booking_id: string;
@@ -207,17 +220,19 @@ export async function applyCallback(
       `SELECT p.id, p.booking_id, p.status, p.gateway_payment_id, b.showtime_id
          FROM payments p JOIN bookings b ON b.id = p.booking_id
         WHERE p.booking_ref = $1
-        ORDER BY p.created_at DESC LIMIT 1
+          AND ($2::text IS NULL OR p.gateway_payment_id IS NULL OR p.gateway_payment_id = $2)
+        ORDER BY (p.gateway_payment_id = $2) DESC NULLS LAST, p.created_at DESC
+        LIMIT 1
           FOR UPDATE OF p`,
-      [bookingRef],
+      [bookingRef, gatewayPaymentId],
     );
     const payment = found.rows[0];
     if (!payment) {
-      logger.warn({ bookingRef }, 'Callback for unknown booking_ref; acknowledging anyway');
-      return { action: 'IGNORE' as const, showtimeId: null, gatewayPaymentId: null };
+      logger.warn({ bookingRef, eventId }, 'Callback for unknown booking_ref; acknowledging anyway');
+      return { duplicate: false, action: 'IGNORE', showtimeId: null, gatewayPaymentId: null };
     }
 
-    const action = decideCallback(payment.status, incoming);
+    const action = decideCallback(payment.status, status as CallbackStatus);
 
     if (action === 'CONFIRM') {
       await c.query(
@@ -266,9 +281,20 @@ export async function applyCallback(
         { bookingRef, paymentId: payment.id },
         'Late success for an abandoned booking; refund required',
       );
+    } else if (action === 'REFUND_DONE') {
+      // F24: the gateway confirming a refund WE issued. Previously dead code
+      // — both REFUNDED branches returned IGNORE, so this never recorded.
+      await c.query(
+        `UPDATE payments SET status='REFUNDED',
+                gateway_payment_id = COALESCE(gateway_payment_id, $2)
+          WHERE id = $1`,
+        [payment.id, gatewayPaymentId],
+      );
+      logger.info({ bookingRef, paymentId: payment.id }, 'Refund confirmed by gateway callback');
     }
 
     return {
+      duplicate: false,
       action,
       showtimeId: payment.showtime_id,
       gatewayPaymentId: gatewayPaymentId ?? payment.gateway_payment_id,
@@ -277,15 +303,35 @@ export async function applyCallback(
 }
 
 export async function markRefunded(paymentId: string): Promise<void> {
-  await query(`UPDATE payments SET status='REFUNDED' WHERE id = $1`, [paymentId]);
+  await query(
+    `UPDATE payments SET status='REFUNDED' WHERE id = $1 AND status = 'REFUND_PENDING'`,
+    [paymentId],
+  );
+}
+
+/**
+ * A refund that will never succeed (gateway 404 unknown payment, or 409
+ * NOT_REFUNDABLE) gets a terminal state instead of retrying forever. `permanent`
+ * distinguishes "the gateway told us plainly, no" from "we simply gave up after
+ * MAX_REFUND_ATTEMPTS transient failures" — both stop the reconciler, but only
+ * the second is worth alerting on, since it may still be recoverable by hand.
+ */
+export async function markRefundFailed(paymentId: string, permanent: boolean): Promise<void> {
+  await query(
+    `UPDATE payments SET status = CASE WHEN $2 THEN 'REFUND_FAILED' ELSE status END,
+            refund_attempts = refund_attempts + 1
+      WHERE id = $1 AND status = 'REFUND_PENDING'`,
+    [paymentId, permanent],
+  );
 }
 
 export async function listRefundsPending(): Promise<
-  Array<{ id: string; gateway_payment_id: string | null; booking_ref: string }>
+  Array<{ id: string; gateway_payment_id: string | null; booking_ref: string; refund_attempts: number }>
 > {
   return query(
-    `SELECT id, gateway_payment_id, booking_ref FROM payments
+    `SELECT id, gateway_payment_id, booking_ref, refund_attempts FROM payments
       WHERE status = 'REFUND_PENDING' AND gateway_payment_id IS NOT NULL
+      ORDER BY updated_at ASC
       LIMIT 20`,
   );
 }
@@ -313,9 +359,15 @@ export async function markOtpVerified(ref: string): Promise<void> {
  *
  * Without this a lost callback would pin a seat forever: the booking is out of
  * HELD, so the hold sweeper will not touch it.
+ *
+ * Bounded to SWEEP_BATCH_SIZE (F10), same reasoning as the hold sweeper: a
+ * mass timeout after an outage must not become one transaction holding
+ * hundreds of payment locks for its whole duration. SKIP LOCKED means this
+ * never queues behind a live callback that is (rarely) touching the same row.
  */
 export async function sweepTimedOutPayments(
   timeoutSeconds: number,
+  limit = SWEEP_BATCH_SIZE,
 ): Promise<{ failed: number; showtimeIds: string[] }> {
   return withTransaction(async (c) => {
     const stale = await c.query<{ id: string; booking_id: string; showtime_id: string }>(
@@ -323,8 +375,9 @@ export async function sweepTimedOutPayments(
          FROM payments p JOIN bookings b ON b.id = p.booking_id
         WHERE p.status IN ('INITIATED','PENDING')
           AND p.created_at < now() - make_interval(secs => $1)
-        FOR UPDATE OF p`,
-      [timeoutSeconds],
+        LIMIT $2
+          FOR UPDATE OF p SKIP LOCKED`,
+      [timeoutSeconds, limit],
     );
     if (stale.rows.length === 0) return { failed: 0, showtimeIds: [] };
 

@@ -16,15 +16,20 @@ export type CallbackStatus = 'SUCCEEDED' | 'FAILED' | 'REFUNDED';
  * ~8% of callbacks twice, retries anything we do not answer 200 (up to 8
  * times), and can deliver out of order.
  *
- *   CONFIRM — first success: confirm the booking, mark seats BOOKED
- *   FAIL    — first failure: release the seats
- *   IGNORE  — we have already reached this conclusion, or the callback is
- *             stale and would undo a decision we are not allowed to reverse
- *   REFUND  — money arrived for a booking we already gave up on. We must not
- *             resurrect the booking (someone else may hold those seats now),
- *             so the only honest response is to give the money back.
+ *   CONFIRM      — first success: confirm the booking, mark seats BOOKED
+ *   FAIL         — first failure: release the seats
+ *   IGNORE       — we have already reached this conclusion, or the callback
+ *                  is stale and would undo a decision we are not allowed to
+ *                  reverse
+ *   REFUND       — money arrived for a booking we already gave up on. We
+ *                  must not resurrect the booking (someone else may hold
+ *                  those seats now), so the only honest response is to give
+ *                  the money back.
+ *   REFUND_DONE  — the gateway confirming a refund WE issued. Distinct from
+ *                  CONFIRM: there is no booking to confirm, only a payment
+ *                  row to close out.
  */
-export type CallbackAction = 'CONFIRM' | 'FAIL' | 'IGNORE' | 'REFUND';
+export type CallbackAction = 'CONFIRM' | 'FAIL' | 'IGNORE' | 'REFUND' | 'REFUND_DONE';
 
 export function decideCallback(
   current: PaymentStatus,
@@ -48,7 +53,10 @@ export function decideCallback(
       return 'IGNORE';
 
     case 'REFUNDED':
-      return current === 'REFUND_PENDING' ? 'IGNORE' : 'IGNORE';
+      // The gateway confirming a refund we asked for. Record it; there is
+      // nothing else to undo — the seats were released when we gave up.
+      if (current === 'REFUND_PENDING') return 'REFUND_DONE';
+      return 'IGNORE';
 
     default:
       return 'IGNORE';

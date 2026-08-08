@@ -28,7 +28,20 @@ const schema = z.object({
    */
   HOLD_TTL_SECONDS: z.coerce.number().int().positive().default(120),
 
-  /** A payment stuck PENDING longer than this is failed and its seats freed. */
+  /**
+   * A payment stuck PENDING longer than this is failed and its seats freed.
+   *
+   * F22 — THIS NUMBER IS COUPLED to the gateway's own retry schedule and the
+   * coupling is load-bearing, not incidental. The gateway retries an
+   * unacknowledged callback with backoff 1,2,4,8,16,30,30s — roughly 91s of
+   * total retry window. If this timeout fires and releases the seats BEFORE
+   * that window closes, a callback that arrives after release still lands
+   * correctly (decideCallback maps FAILED+SUCCEEDED to REFUND, never a
+   * resurrection). If this value were raised ABOVE ~91s, a genuinely lost
+   * callback would leave a payment PENDING for longer with no compensating
+   * mechanism watching it. Keep it below the gateway's retry window; see the
+   * boot-time check below.
+   */
   PAYMENT_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(90),
 
   /** Seat-map micro-cache. Kept tiny; busted on every seat-state change. */
@@ -48,6 +61,12 @@ const schema = z.object({
     .default('true')
     .transform((v) => v === 'true'),
   GATEWAY_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
+  /**
+   * HMAC-SHA256 secret the gateway signs every callback with (X-Signature).
+   * Default matches the gateway's own documented default so this works
+   * out of the box; override to match if the gateway is reconfigured.
+   */
+  GATEWAY_SECRET: z.string().min(1).default('z2p-2026-secret'),
 
   // --- Rate limiting ---------------------------------------------------------
   /**
@@ -76,6 +95,17 @@ if (!parsed.success) {
 }
 
 const data = parsed.data;
+
+/** 1+2+4+8+16+30+30s — the gateway's documented callback retry backoff (F22). */
+const GATEWAY_CALLBACK_RETRY_WINDOW_SECONDS = 91;
+if (data.PAYMENT_TIMEOUT_SECONDS > GATEWAY_CALLBACK_RETRY_WINDOW_SECONDS) {
+  console.warn(
+    `\n  WARNING: PAYMENT_TIMEOUT_SECONDS (${data.PAYMENT_TIMEOUT_SECONDS}) exceeds the gateway's ` +
+      `~${GATEWAY_CALLBACK_RETRY_WINDOW_SECONDS}s callback retry window (see FIX-BACKLOG F22). ` +
+      `A lost callback's last retry could then arrive after this timeout has already given up, ` +
+      `leaving the payment PENDING with nothing left to reconcile it.\n`,
+  );
+}
 
 export const env = {
   ...data,

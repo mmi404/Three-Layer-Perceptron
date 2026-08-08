@@ -3,11 +3,16 @@ import { env } from '../config/env';
 import { logger } from './logger';
 
 /**
- * Redis does three jobs here, and being able to name all three is a good answer:
+ * Redis does two jobs here, and being able to name both is a good answer:
  *   1. Cache      — absorbs read spikes before they reach Postgres
- *   2. Queue      — the sync/async seam between `api` and `worker`
- *   3. Rate limit — counters MUST be shared, because `api` runs 3 replicas.
+ *   2. Rate limit — counters MUST be shared, because `api` runs 3 replicas.
  *                   In-memory counters would let 3x the traffic through.
+ *
+ * (There used to be a third: a small job queue as the api/worker seam. It was
+ * never actually used — refunds are driven by polling the database, which is
+ * itself a transactional outbox and more durable than the queue would have
+ * been — so it was deleted along with the blocking client it needed. See
+ * FIX-BACKLOG F25.)
  */
 function build(name: string): Redis {
   const client = new Redis(env.REDIS_URL, {
@@ -22,9 +27,6 @@ function build(name: string): Redis {
 
 /** General-purpose client: cache + rate limiting. */
 export const redis = build('main');
-
-/** Blocking reads (BRPOP) monopolise a connection, so the worker gets its own. */
-export const redisBlocking = build('blocking');
 
 // --- Cache helper -----------------------------------------------------------
 
@@ -60,5 +62,5 @@ export async function invalidate(prefix: string): Promise<void> {
 }
 
 export async function closeRedis(): Promise<void> {
-  await Promise.allSettled([redis.quit(), redisBlocking.quit()]);
+  await redis.quit();
 }

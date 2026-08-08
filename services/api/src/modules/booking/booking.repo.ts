@@ -4,6 +4,10 @@ import { query, withTransaction } from '../../lib/db';
 import { Conflict, NotFound } from '../../lib/errors';
 import type { CreateHoldInput, HoldResult } from './booking.schema';
 
+/** Bound on every sweep batch (F10) — a mass expiry must not become one
+ *  transaction holding thousands of row locks at once. */
+export const SWEEP_BATCH_SIZE = 500;
+
 export function newBookingRef(): string {
   return `bk_${randomBytes(6).toString('hex')}`;   // bk_ + 12 hex chars
 }
@@ -16,6 +20,47 @@ type LockedSeat = {
   label: string;
   booking_id: string | null;
 };
+
+/** Look up a still-live hold created under this idempotency key (F19). */
+async function findLiveHoldByIdempotencyKey(
+  c: PoolClient,
+  idempotencyKey: string,
+  ttlSeconds: number,
+): Promise<(HoldResult & { replayed: true }) | null> {
+  const existing = await c.query<{
+    id: string;
+    booking_ref: string;
+    showtime_id: string;
+    amount_cents: number;
+    expires_at: string;
+  }>(
+    `SELECT id, booking_ref, showtime_id, amount_cents, expires_at
+       FROM bookings
+      WHERE idempotency_key = $1 AND status = 'HELD'`,
+    [idempotencyKey],
+  );
+  const b = existing.rows[0];
+  if (!b) return null;
+
+  const seats = await c.query<{ seat_id: string; label: string; price_cents: number }>(
+    `SELECT s.id AS seat_id, s.row_label || s.col_num AS label, ss.price_cents
+       FROM show_seats ss JOIN seats s ON s.id = ss.seat_id
+      WHERE ss.booking_id = $1
+      ORDER BY s.row_label, s.col_num`,
+    [b.id],
+  );
+
+  return {
+    booking_ref: b.booking_ref,
+    showtime_id: b.showtime_id,
+    status: 'HELD' as const,
+    seats: seats.rows,
+    amount_cents: b.amount_cents,
+    expires_at: new Date(b.expires_at).toISOString(),
+    hold_ttl_seconds: ttlSeconds,
+    replayed: true,
+  };
+}
 
 /**
  * ============================================================================
@@ -45,8 +90,27 @@ type LockedSeat = {
 export async function holdSeats(
   input: CreateHoldInput,
   ttlSeconds: number,
-): Promise<HoldResult> {
+  idempotencyKey?: string,
+): Promise<HoldResult & { replayed?: boolean }> {
   return withTransaction(async (c: PoolClient) => {
+    // Bound how long a request will queue for a hot seat row (F8). Without
+    // this, a request blocked on a violently contested seat holds one of the
+    // pool's 10 connections forever — and browsing shares that same pool, so
+    // one hammered showtime can starve everything else. SET LOCAL scopes it
+    // to this transaction only. 55P03 (lock_not_available) is mapped to a
+    // clean 503 by the error handler rather than hanging or 500ing.
+    await c.query("SET LOCAL lock_timeout = '2s'");
+
+    // --- 0. Idempotency replay (F19) -----------------------------------------
+    // A retried request (double-tap, or a client retry after its first
+    // response was lost) must not fight the user's own prior hold. If a live
+    // HELD booking already exists under this key, hand it back unchanged
+    // instead of attempting a second, independent hold.
+    if (idempotencyKey) {
+      const replay = await findLiveHoldByIdempotencyKey(c, idempotencyKey, ttlSeconds);
+      if (replay) return replay;
+    }
+
     // --- 1. Lock the contended rows, in a deterministic order ---------------
     const locked = await c.query<LockedSeat>(
       `SELECT ss.seat_id, ss.status, ss.price_cents, ss.hold_expires_at,
@@ -71,13 +135,44 @@ export async function holdSeats(
     // --- 2. Create the booking. The CHECK constraint on show_seats requires a
     //        booking_id before a seat may leave AVAILABLE, so this comes first.
     //        If the guarded UPDATE below loses, the whole thing rolls back.
+    //
+    //        clock_timestamp() here, not now() (F9): now() is frozen at
+    //        transaction START, so a request that queued a while on the lock
+    //        above would otherwise write an expiry computed from a stale
+    //        clock — a hold born already short. clock_timestamp() reads the
+    //        real time at the moment we actually grant it. (Comparisons
+    //        against an EXISTING deadline, below and in the sweeper, keep
+    //        using now() deliberately — that direction is conservative, not
+    //        short: a queued loser sees a hold as newer than it really is, so
+    //        it never wrongly steals one.)
     const bookingRef = newBookingRef();
-    const inserted = await c.query<{ id: string; expires_at: string }>(
-      `INSERT INTO bookings (booking_ref, showtime_id, phone, status, amount_cents, expires_at)
-       VALUES ($1, $2, $3, 'HELD', $4, now() + make_interval(secs => $5))
-       RETURNING id, expires_at`,
-      [bookingRef, input.showtime_id, input.phone, amountCents, ttlSeconds],
-    );
+    let inserted: { rows: Array<{ id: string; expires_at: string }> };
+    // A SAVEPOINT here, not a bare try/catch: Postgres aborts the WHOLE
+    // enclosing transaction on any statement error and refuses every further
+    // command until an explicit ROLLBACK — including the fallback SELECT
+    // below. Without the savepoint, that fallback query would itself fail
+    // with 25P02 ("current transaction is aborted"), turning a recoverable
+    // race into an opaque 500.
+    await c.query('SAVEPOINT before_booking_insert');
+    try {
+      inserted = await c.query<{ id: string; expires_at: string }>(
+        `INSERT INTO bookings
+           (booking_ref, showtime_id, phone, status, amount_cents, expires_at, idempotency_key)
+         VALUES ($1, $2, $3, 'HELD', $4, clock_timestamp() + make_interval(secs => $5), $6)
+         RETURNING id, expires_at`,
+        [bookingRef, input.showtime_id, input.phone, amountCents, ttlSeconds, idempotencyKey ?? null],
+      );
+    } catch (err) {
+      // Lost a race against ourselves: another request with the SAME key
+      // committed between our replay check and this insert. Hand back its
+      // result rather than erroring — that IS the idempotent behaviour.
+      if ((err as { code?: string }).code === '23505' && idempotencyKey) {
+        await c.query('ROLLBACK TO SAVEPOINT before_booking_insert');
+        const replay = await findLiveHoldByIdempotencyKey(c, idempotencyKey, ttlSeconds);
+        if (replay) return replay;
+      }
+      throw err;
+    }
     const booking = inserted.rows[0];
 
     // --- 3. The guarded transition. The WHERE clause is the rule. -----------
@@ -85,7 +180,7 @@ export async function holdSeats(
       `UPDATE show_seats
           SET status = 'HELD',
               booking_id = $3,
-              hold_expires_at = now() + make_interval(secs => $4)
+              hold_expires_at = clock_timestamp() + make_interval(secs => $4)
         WHERE showtime_id = $1
           AND seat_id = ANY($2::uuid[])
           AND (status = 'AVAILABLE'
@@ -185,13 +280,45 @@ export async function findBookingByRef(ref: string): Promise<BookingDetail | nul
 }
 
 /**
+ * F21: let a user who changed their mind return their seats immediately,
+ * instead of waiting out the full TTL. Guarded the same way as every other
+ * transition here — the WHERE clause is the only thing that decides.
+ */
+export async function releaseHold(ref: string): Promise<{ released: boolean; showtimeId: string | null }> {
+  return withTransaction(async (c) => {
+    const moved = await c.query<{ id: string; showtime_id: string }>(
+      `UPDATE bookings SET status = 'EXPIRED', expires_at = NULL
+        WHERE booking_ref = $1 AND status = 'HELD'
+        RETURNING id, showtime_id`,
+      [ref],
+    );
+    const booking = moved.rows[0];
+    if (!booking) return { released: false, showtimeId: null };
+
+    await c.query(
+      `UPDATE show_seats SET status = 'AVAILABLE', booking_id = NULL, hold_expires_at = NULL
+        WHERE booking_id = $1 AND status = 'HELD'`,
+      [booking.id],
+    );
+    return { released: true, showtimeId: booking.showtime_id };
+  });
+}
+
+/**
  * Expiry sweeper. Idempotent and safe to run concurrently with holds: the
  * WHERE clause only ever touches rows already past their deadline, and a hold
  * transaction holds a row lock on any seat it is claiming.
  *
- * Returns how much it cleaned up, so the worker can log something meaningful.
+ * Bounded to SWEEP_BATCH_SIZE per call (F10) — a mass expiry after a spike
+ * must not become one transaction holding thousands of row locks for its
+ * whole duration. SKIP LOCKED means the sweeper never queues behind a hold
+ * transaction that is (rarely) touching the same row; it just picks up
+ * whatever isn't currently in use and leaves the rest for the next tick.
+ *
+ * Returns how much it cleaned up, so the caller can decide whether to loop
+ * for another batch, and the worker can log something meaningful.
  */
-export async function sweepExpiredHolds(): Promise<{
+export async function sweepExpiredHolds(limit = SWEEP_BATCH_SIZE): Promise<{
   seats: number;
   bookings: number;
   showtimeIds: string[];
@@ -200,12 +327,25 @@ export async function sweepExpiredHolds(): Promise<{
     const seats = await c.query<{ showtime_id: string }>(
       `UPDATE show_seats
           SET status = 'AVAILABLE', booking_id = NULL, hold_expires_at = NULL
-        WHERE status = 'HELD' AND hold_expires_at < now()
+        WHERE (showtime_id, seat_id) IN (
+          SELECT showtime_id, seat_id FROM show_seats
+           WHERE status = 'HELD' AND hold_expires_at < now()
+           LIMIT $1
+             FOR UPDATE SKIP LOCKED
+        )
         RETURNING showtime_id`,
+      [limit],
     );
     const bookings = await c.query(
-      `UPDATE bookings SET status = 'EXPIRED', expires_at = NULL
-        WHERE status = 'HELD' AND expires_at < now()`,
+      `UPDATE bookings
+          SET status = 'EXPIRED', expires_at = NULL
+        WHERE id IN (
+          SELECT id FROM bookings
+           WHERE status = 'HELD' AND expires_at < now()
+           LIMIT $1
+             FOR UPDATE SKIP LOCKED
+        )`,
+      [limit],
     );
     return {
       seats: seats.rows.length,

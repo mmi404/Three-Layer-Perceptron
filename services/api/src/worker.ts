@@ -1,15 +1,15 @@
 import { env } from './config/env';
 import { logger } from './lib/logger';
-import { dequeue, type Job } from './lib/queue';
 import { closeDatabase, waitForDatabase } from './lib/db';
 import { closeRedis } from './lib/redis';
 import { sweepExpired } from './modules/booking/booking.service';
 import { processRefunds, sweepPayments } from './modules/payment/payment.service';
+import { checkInvariants } from './modules/booking/booking.invariants';
 
 /**
  * WORKER — same image as the API, different entrypoint.
  *
- * Two responsibilities:
+ * Three independent loops, on their own cadences:
  *
  *   1. The hold-expiry sweeper. IMPORTANT: this is a tidiness process, not a
  *      correctness one. Expiry is enforced lazily inside the hold and pay
@@ -18,8 +18,22 @@ import { processRefunds, sweepPayments } from './modules/payment/payment.service
  *      exists so the seat map reflects that promptly. Kill this container
  *      during the demo — nothing breaks.
  *
- *   2. Async jobs (payment retries, refunds) that the request path must not
- *      wait for.
+ *   2. The payment timeout sweeper — fails payments whose callback never
+ *      arrived and releases their seats. Runs on its OWN loop, separate from
+ *      refunds (F11): refunds make blocking gateway calls, and a gateway
+ *      outage must never delay the sweep that frees seats.
+ *
+ *   3. Refund processing — money that landed for a booking we already gave
+ *      up on. Slowest cadence: it is a pure recovery path, and isolating it
+ *      here means its gateway calls can never compete with anything that
+ *      affects seat availability.
+ *
+ * (There used to be a fourth loop, a small Redis job queue for exactly this
+ * kind of async work. It was never actually used — refunds are driven by
+ * polling `payments WHERE status = 'REFUND_PENDING'`, which is itself a
+ * transactional outbox and more durable than the queue would have been — so
+ * the queue and its loop were deleted rather than documented as a limitation
+ * that did not apply. See lib/queue.ts's removal in FIX-BACKLOG F25.)
  */
 
 process.env.SERVICE_NAME = 'worker';
@@ -28,14 +42,9 @@ process.env.SERVICE_NAME = 'worker';
 const SWEEP_INTERVAL_MS = 2000;
 /** Recovery paths only — no need to run them as hot as the hold sweeper. */
 const PAYMENT_SWEEP_INTERVAL_MS = 10_000;
-
-type Handler = (job: Job) => Promise<void>;
-
-const handlers: Record<string, Handler> = {};
-
-export function registerHandler(type: string, fn: Handler): void {
-  handlers[type] = fn;
-}
+const REFUND_INTERVAL_MS = 10_000;
+/** F23: cheap, log-only consistency check — see booking.invariants.ts. */
+const INVARIANT_CHECK_INTERVAL_MS = 60_000;
 
 let running = true;
 
@@ -51,50 +60,44 @@ async function runSweeper(): Promise<void> {
   }
 }
 
-/**
- * Payment reconciliation, on a slower cadence than the hold sweeper.
- *
- * Fails payments whose callback never arrived (releasing their seats), and
- * refunds money that landed for a booking we had already given up on. Both are
- * recovery paths, so a 10s tick is plenty.
- */
-async function runPaymentReconciler(): Promise<void> {
+/** Fails payments whose callback never arrived and releases their seats. */
+async function runPaymentSweeper(): Promise<void> {
   while (running) {
     try {
       await sweepPayments();
-      await processRefunds();
     } catch (err) {
-      logger.error({ err }, 'Payment reconciliation failed');
+      logger.error({ err }, 'Payment timeout sweep failed');
     }
     await new Promise((r) => setTimeout(r, PAYMENT_SWEEP_INTERVAL_MS));
   }
 }
 
-async function runJobLoop(): Promise<void> {
+/**
+ * Refunds money that landed for a booking we had already given up on. Kept
+ * off the payment sweeper's loop deliberately: this one makes blocking
+ * gateway calls (up to 20 per tick), and a slow or dead gateway must never
+ * delay the sweep above, which is the one that frees seats.
+ */
+async function runRefundProcessor(): Promise<void> {
   while (running) {
-    let job: Job | null = null;
     try {
-      job = await dequeue(5);
+      await processRefunds();
     } catch (err) {
-      logger.error({ err }, 'Queue read failed');
-      await new Promise((r) => setTimeout(r, 1000));
-      continue;
+      logger.error({ err }, 'Refund processing failed');
     }
-    if (!job) continue;
+    await new Promise((r) => setTimeout(r, REFUND_INTERVAL_MS));
+  }
+}
 
-    const handler = handlers[job.type];
-    if (!handler) {
-      logger.warn({ jobId: job.id, type: job.type }, 'No handler registered, dropping');
-      continue;
-    }
-
-    const started = Date.now();
+/** F23: log-only. Never mutates anything — see booking.invariants.ts. */
+async function runInvariantCheck(): Promise<void> {
+  while (running) {
     try {
-      await handler(job);
-      logger.info({ jobId: job.id, type: job.type, ms: Date.now() - started }, 'Job done');
+      await checkInvariants();
     } catch (err) {
-      logger.error({ err, jobId: job.id, type: job.type }, 'Job failed');
+      logger.error({ err }, 'Invariant check failed');
     }
+    await new Promise((r) => setTimeout(r, INVARIANT_CHECK_INTERVAL_MS));
   }
 }
 
@@ -104,16 +107,20 @@ async function main(): Promise<void> {
     { sweepIntervalMs: SWEEP_INTERVAL_MS, holdTtlSeconds: env.HOLD_TTL_SECONDS },
     'Worker started',
   );
-  await Promise.all([runSweeper(), runPaymentReconciler(), runJobLoop()]);
+  await Promise.all([
+    runSweeper(),
+    runPaymentSweeper(),
+    runRefundProcessor(),
+    runInvariantCheck(),
+  ]);
 }
 
 const shutdown = (signal: string): void => {
   logger.info({ signal }, 'Worker shutting down');
   running = false;
-  // Let the in-flight BRPOP time out rather than severing it mid-job.
   setTimeout(() => {
     void Promise.allSettled([closeDatabase(), closeRedis()]).then(() => process.exit(0));
-  }, 6_000).unref();
+  }, 2_000).unref();
 };
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));

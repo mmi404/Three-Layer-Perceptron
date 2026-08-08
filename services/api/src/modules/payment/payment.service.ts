@@ -2,7 +2,7 @@ import { env } from '../../config/env';
 import { AppError, Conflict, NotFound } from '../../lib/errors';
 import { logger } from '../../lib/logger';
 import * as gateway from '../../lib/gateway';
-import { GatewayUnavailable, type ForceMode } from '../../lib/gateway';
+import { GatewayRejected, GatewayUnavailable, type ForceMode } from '../../lib/gateway';
 import { invalidateSeatMap } from '../catalog/catalog.service';
 import { callbacksTotal } from '../metrics/metrics.routes';
 import * as repo from './payment.repo';
@@ -119,56 +119,69 @@ export async function pay(
 export async function handleCallback(
   body: GatewayCallback,
 ): Promise<{ duplicate: boolean; action: string }> {
-  const isNew = await repo.recordEventIfNew(
+  // F4: recording the event_id and applying its effect happen inside ONE
+  // transaction (see payment.repo.recordAndApplyCallback). Previously these
+  // were two separate operations, and a failure between them could mark an
+  // event permanently "seen" with nothing applied.
+  const result = await repo.recordAndApplyCallback(
     body.event_id,
     body.booking_ref ?? null,
     body.status ?? null,
+    body.payment_id ?? null,
     body,
   );
 
-  if (!isNew) {
+  if (result.duplicate) {
     callbacksTotal.inc({ dedup: 'hit' });
     logger.info({ eventId: body.event_id }, 'Duplicate callback suppressed');
     return { duplicate: true, action: 'IGNORE' };
   }
   callbacksTotal.inc({ dedup: 'miss' });
 
-  if (!body.booking_ref || !body.status) {
-    logger.warn({ eventId: body.event_id }, 'Callback missing booking_ref or status');
-    return { duplicate: false, action: 'IGNORE' };
-  }
-
-  const outcome = await repo.applyCallback(
-    body.booking_ref,
-    body.status,
-    body.payment_id ?? null,
-  );
-
-  if (outcome.showtimeId && outcome.action !== 'IGNORE') {
-    void invalidateSeatMap(outcome.showtimeId);
+  if (result.showtimeId && result.action !== 'IGNORE') {
+    void invalidateSeatMap(result.showtimeId);
   }
 
   logger.info(
-    { eventId: body.event_id, bookingRef: body.booking_ref, action: outcome.action },
+    { eventId: body.event_id, bookingRef: body.booking_ref, action: result.action },
     'Callback applied',
   );
-  return { duplicate: false, action: outcome.action };
+  return { duplicate: false, action: result.action };
 }
 
 // --- Worker duties ------------------------------------------------------------
 
+/** Bounded batches (F10), same reasoning as booking.service.sweepExpired. */
+const MAX_SWEEP_BATCHES = 20;
+
 export async function sweepPayments(): Promise<number> {
-  const { failed, showtimeIds } = await repo.sweepTimedOutPayments(
-    env.PAYMENT_TIMEOUT_SECONDS,
-  );
-  if (failed > 0) {
-    await Promise.all(showtimeIds.map(invalidateSeatMap));
-    logger.warn({ failed }, 'Failed payments that never received a callback');
+  let totalFailed = 0;
+  const touched = new Set<string>();
+
+  for (let i = 0; i < MAX_SWEEP_BATCHES; i++) {
+    const { failed, showtimeIds } = await repo.sweepTimedOutPayments(env.PAYMENT_TIMEOUT_SECONDS);
+    showtimeIds.forEach((id) => touched.add(id));
+    totalFailed += failed;
+    if (failed < repo.SWEEP_BATCH_SIZE) break;
   }
-  return failed;
+
+  if (totalFailed > 0) {
+    await Promise.all([...touched].map(invalidateSeatMap));
+    logger.warn({ failed: totalFailed }, 'Failed payments that never received a callback');
+  }
+  return totalFailed;
 }
 
-/** Money that landed for a booking we had already given up on. */
+/**
+ * Money that landed for a booking we had already given up on.
+ *
+ * A refund can fail PERMANENTLY (gateway 404 unknown payment, 409
+ * NOT_REFUNDABLE) as well as transiently (5xx, timeout). Previously every
+ * failure looked the same and the reconciler retried a permanent failure
+ * forever, every 10s, indefinitely. Now: a permanent rejection or exhausting
+ * MAX_REFUND_ATTEMPTS transient ones moves the payment to REFUND_FAILED, a
+ * terminal state that stops the reconciler and is worth someone looking at.
+ */
 export async function processRefunds(): Promise<number> {
   const pending = await repo.listRefundsPending();
   let done = 0;
@@ -179,8 +192,25 @@ export async function processRefunds(): Promise<number> {
       logger.info({ bookingRef: p.booking_ref }, 'Refund issued');
       done++;
     } catch (err) {
-      // Leave it REFUND_PENDING; the next sweep retries.
-      logger.warn({ err, bookingRef: p.booking_ref }, 'Refund failed, will retry');
+      if (err instanceof GatewayRejected) {
+        await repo.markRefundFailed(p.id, true);
+        logger.error(
+          { status: err.status, bookingRef: p.booking_ref },
+          'Refund permanently rejected by gateway; giving up',
+        );
+      } else if (p.refund_attempts + 1 >= repo.MAX_REFUND_ATTEMPTS) {
+        await repo.markRefundFailed(p.id, true);
+        logger.error(
+          { attempts: p.refund_attempts + 1, bookingRef: p.booking_ref },
+          'Refund exhausted retry attempts; giving up',
+        );
+      } else {
+        await repo.markRefundFailed(p.id, false);
+        logger.warn(
+          { err, attempts: p.refund_attempts + 1, bookingRef: p.booking_ref },
+          'Refund failed, will retry',
+        );
+      }
     }
   }
   return done;
