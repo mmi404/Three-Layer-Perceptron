@@ -231,6 +231,12 @@ jobs:
               '
                 sudo usermod -aG docker "$USER" 2>/dev/null || true
                 sudo chmod 666 /var/run/docker.sock 2>/dev/null || true
+
+                # Free disk space FIRST — the server may be 100% full from previous builds
+                docker system prune -af --volumes 2>/dev/null || true
+                sudo journalctl --vacuum-size=50M 2>/dev/null || true
+                sudo rm -rf /tmp/* 2>/dev/null || true
+
                 mkdir -p ~/apps
                 if [ ! -d ~/apps/cinemaseat/.git ]; then
                   git clone '"$REPO_URL"' ~/apps/cinemaseat
