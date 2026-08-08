@@ -77,6 +77,7 @@ if [ ! -f .env ]; then
   cat > .env <<EOF
 PROJECT_NAME=cinemaseat
 HTTP_PORT=80
+HTTPS_PORT=443
 POSTGRES_USER=app
 POSTGRES_PASSWORD=$(openssl rand -hex 16)
 POSTGRES_DB=cinemaseat
