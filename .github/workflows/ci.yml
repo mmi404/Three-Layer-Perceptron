@@ -135,6 +135,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          sudo docker system prune -af --volumes || true
+          df -h /
+
       - name: Bring the whole stack up from a clean clone
         run: |
           export BUILD_SHA=$(git rev-parse --short HEAD)
