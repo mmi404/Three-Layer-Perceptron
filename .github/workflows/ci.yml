@@ -140,7 +140,14 @@ jobs:
       - name: Health, readiness and provenance
         run: |
           set -e
-          curl -fsS --retry 10 --retry-delay 2 --retry-connrefused http://localhost:8080/health
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/health >/dev/null 2>&1; then
+              echo "Traefik routed to healthy API backend on attempt $i"
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://localhost:8080/health
           echo
           curl -fsS http://localhost:8080/ready
           echo
