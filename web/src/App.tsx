@@ -32,7 +32,9 @@ export function App() {
   // Showtime & Seat Map State
   const [showtime, setShowtime] = useState<Showtime>(initialShowtime);
   const [seats, setSeats] = useState<Seat[]>(initialSeats);
-  const [selectedSeat, setSelectedSeat] = useState<Seat | null>(null);
+
+  // Multi-seat selection
+  const [selectedSeats, setSelectedSeats] = useState<Seat[]>([]);
 
   // Transactional Hold & Booking State
   const [activeHold, setActiveHold] = useState<Hold | null>(null);
@@ -51,12 +53,22 @@ export function App() {
   const [confirmedBookingRef, setConfirmedBookingRef] = useState<string | null>(null);
   const [totalAmountPaid, setTotalAmountPaid] = useState<number>(450);
 
+  // Derived values
+  const selectedSeatIds = useMemo(() => 
+    selectedSeats.map(s => s.seat_id || s.id || s.seat_code || ''), 
+    [selectedSeats]
+  );
+
+  const totalSeatPrice = useMemo(() => 
+    selectedSeats.reduce((sum, s) => sum + (s.price_cents ? Math.round(s.price_cents / 100) : 450), 0),
+    [selectedSeats]
+  );
+
   // Load live movies from API with fallback merging
   const loadMovies = useCallback(async () => {
     try {
       const res = await api<{ data: Movie[] }>('/v1/movies', { timeoutMs: 3000 });
       if (res && res.data && res.data.length > 0) {
-        // Merge backend movies with rich presentation fallback metadata
         const merged = res.data.map((m, idx) => {
           const fallback = fallbackList[idx % fallbackList.length];
           return {
@@ -73,7 +85,6 @@ export function App() {
         if (merged[0]) setSelectedMovie(merged[0]);
       }
     } catch {
-      // Graceful fallback to rich local dataset
       setMovies(fallbackList);
     }
   }, [fallbackList]);
@@ -106,7 +117,6 @@ export function App() {
         }
       }
     } catch {
-      // Keep initial seats
       setSeats(MovieFallback.getInitialSeats());
     }
   }, []);
@@ -124,19 +134,35 @@ export function App() {
     }
   }, [viewMode, showtime.id, activeHold, loadSeats]);
 
-  // Instant seat selection and atomic hold creation
-  const handleSelectSeat = async (seat: Seat) => {
-    setSelectedSeat(seat);
-    const seatPrice = seat.price_cents ? Math.round(seat.price_cents / 100) : 450;
-    setTotalAmountPaid(seatPrice);
+  // Toggle seat selection (add/remove from selectedSeats)
+  const handleToggleSeat = (seat: Seat) => {
+    if (activeHold) return; // Can't change selection while hold is active
+
+    const seatId = seat.seat_id || seat.id || seat.seat_code || '';
+    const alreadySelected = selectedSeats.some(
+      s => (s.seat_id || s.id || s.seat_code) === seatId
+    );
+
+    if (alreadySelected) {
+      setSelectedSeats(prev => prev.filter(s => (s.seat_id || s.id || s.seat_code) !== seatId));
+    } else {
+      setSelectedSeats(prev => [...prev, seat]);
+    }
+  };
+
+  // Hold all selected seats atomically
+  const handleHoldSelectedSeats = async () => {
+    if (selectedSeats.length === 0 || activeHold) return;
+
+    const seatIds = selectedSeats.map(s => s.seat_id || s.id || s.seat_code || 'seat-c5');
+    setTotalAmountPaid(totalSeatPrice);
 
     try {
-      const seatId = seat.seat_id || seat.id || seat.seat_code || 'seat-c5';
       const res = await api<Hold>('/v1/holds', {
         method: 'POST',
         body: JSON.stringify({
           showtime_id: showtime.id,
-          seat_ids: [seatId],
+          seat_ids: seatIds,
           phone: '01712345678',
         }),
         timeoutMs: 4000,
@@ -147,34 +173,41 @@ export function App() {
         const expires = res.expires_at ? new Date(res.expires_at) : new Date(Date.now() + 60000);
         setHoldExpiresAt(expires);
       } else {
-        // Fallback local hold
         const mockRef = `ref_${Date.now()}`;
-        const mockHold: Hold = {
+        const heldSeats = selectedSeats.map(s => ({
+          seat_id: s.seat_id || s.id || s.seat_code || 'seat-c5',
+          label: s.seat_code || s.label || 'C5',
+          price_cents: s.price_cents || 45000,
+        }));
+        setActiveHold({
           booking_ref: mockRef,
           showtime_id: showtime.id,
           status: 'HELD',
-          seats: [{ seat_id: seatId, label: seat.seat_code || 'C5', price_cents: seat.price_cents || 45000 }],
-          amount_cents: seat.price_cents || 45000,
+          seats: heldSeats,
+          amount_cents: heldSeats.reduce((sum, s) => sum + s.price_cents, 0),
           expires_at: new Date(Date.now() + 60000).toISOString(),
           hold_ttl_seconds: 60,
-        };
-        setActiveHold(mockHold);
+        });
         setHoldExpiresAt(new Date(Date.now() + 60000));
       }
     } catch (err: any) {
       if (err?.status === 409 || err?.api?.code === 'SEATS_UNAVAILABLE') {
-        alert('Seat was just taken by another user in real-time. Please choose another seat.');
+        alert('One or more seats were just taken. Please choose different seats.');
         loadSeats(showtime.id);
-        setSelectedSeat(null);
+        setSelectedSeats([]);
       } else {
-        const seatId = seat.seat_id || seat.id || seat.seat_code || 'seat-c5';
+        const heldSeats = selectedSeats.map(s => ({
+          seat_id: s.seat_id || s.id || s.seat_code || 'seat-c5',
+          label: s.seat_code || s.label || 'C5',
+          price_cents: s.price_cents || 45000,
+        }));
         const mockRef = `cs_${Date.now().toString(36)}`;
         setActiveHold({
           booking_ref: mockRef,
           showtime_id: showtime.id,
           status: 'HELD',
-          seats: [{ seat_id: seatId, label: seat.seat_code || 'C5', price_cents: seat.price_cents || 45000 }],
-          amount_cents: seat.price_cents || 45000,
+          seats: heldSeats,
+          amount_cents: heldSeats.reduce((sum, s) => sum + s.price_cents, 0),
           expires_at: new Date(Date.now() + 60000).toISOString(),
           hold_ttl_seconds: 60,
         });
@@ -194,7 +227,7 @@ export function App() {
     }
     setActiveHold(null);
     setHoldExpiresAt(null);
-    setSelectedSeat(null);
+    setSelectedSeats([]);
     loadSeats(showtime.id);
   };
 
@@ -203,8 +236,11 @@ export function App() {
     setIsSnackModalOpen(true);
   };
 
-  // Direct to Payment
-  const handleProceedDirectPayment = () => {
+  // Direct to Payment — hold first if not already held
+  const handleProceedDirectPayment = async () => {
+    if (!activeHold && selectedSeats.length > 0) {
+      await handleHoldSelectedSeats();
+    }
     setIsPaymentModalOpen(true);
   };
 
@@ -221,6 +257,7 @@ export function App() {
     setIsPaymentModalOpen(false);
     setConfirmedBookingRef(bookingRef);
 
+    const seatCodes = selectedSeats.map(s => s.seat_code || s.label || 'C5').join(', ');
     const confirmedTicket: Booking = {
       id: `b_${bookingRef}`,
       booking_ref: bookingRef,
@@ -229,8 +266,12 @@ export function App() {
       amount_cents: totalAmountPaid * 100,
       movie_title: selectedMovie.title,
       screen_name: showtime.hall_name || showtime.screen_name || 'Grand Hall IMAX 1',
-      seat_code: selectedSeat?.seat_code || selectedSeat?.label || 'C5',
-      seats: [{ seat_id: selectedSeat?.id || 'seat-c5', label: selectedSeat?.seat_code || 'C5', price_cents: 45000 }],
+      seat_code: seatCodes,
+      seats: selectedSeats.map(s => ({
+        seat_id: s.seat_id || s.id || 'seat-c5',
+        label: s.seat_code || s.label || 'C5',
+        price_cents: s.price_cents || 45000,
+      })),
       created_at: new Date().toISOString(),
       snacks: selectedSnacks,
     };
@@ -239,7 +280,7 @@ export function App() {
     setIsReceiptModalOpen(true);
     setActiveHold(null);
     setHoldExpiresAt(null);
-    setSelectedSeat(null);
+    setSelectedSeats([]);
   };
 
   // Book a movie directly from Card / Hero
@@ -248,9 +289,15 @@ export function App() {
     if (movie.showtimes && movie.showtimes.length > 0) {
       setShowtime(movie.showtimes[0]);
     }
+    setSelectedSeats([]);
+    setActiveHold(null);
+    setHoldExpiresAt(null);
     setViewMode('SEAT_PICKER');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+  // First selected seat (used for snack/payment modal context)
+  const primarySeat = selectedSeats[0] || null;
 
   return (
     <div className="min-h-screen bg-dark-950 text-gray-100 font-sans selection:bg-brand-500 selection:text-white">
@@ -294,7 +341,7 @@ export function App() {
           </>
         )}
 
-        {/* VIEW 2: CATALOG (Explore All 35+ Movies) */}
+        {/* VIEW 2: CATALOG */}
         {viewMode === 'CATALOG' && (
           <div className="space-y-8 animate-fade-in">
             <HeroBanner
@@ -328,20 +375,21 @@ export function App() {
             <SeatMap
               showtime={showtime}
               seats={seats}
-              selectedSeatId={selectedSeat?.seat_id || selectedSeat?.id || selectedSeat?.seat_code || null}
-              onSelectSeat={handleSelectSeat}
+              selectedSeatIds={selectedSeatIds}
+              onToggleSeat={handleToggleSeat}
               heldUntil={holdExpiresAt}
               onReleaseHold={handleReleaseHold}
               onProceedToCheckout={handleProceedToConcessions}
               onProceedDirectPayment={handleProceedDirectPayment}
               isHoldingSeat={Boolean(activeHold)}
+              selectedCount={selectedSeats.length}
+              totalPrice={totalSeatPrice}
             />
           </div>
         )}
       </main>
 
       {/* Global Modals & Drawers */}
-      {/* 1. Branch / City Location Selector */}
       <BranchSelectorModal
         isOpen={isBranchModalOpen}
         onClose={() => setIsBranchModalOpen(false)}
@@ -349,7 +397,6 @@ export function App() {
         onSelectBranch={(b) => setSelectedBranch(b)}
       />
 
-      {/* 2. Official 4K Trailer Modal */}
       <TrailerModal
         movie={trailerMovie}
         isOpen={Boolean(trailerMovie)}
@@ -357,21 +404,19 @@ export function App() {
         onBookNow={handleBookMovie}
       />
 
-      {/* 3. Concessions & Popcorn Bar Modal */}
-      {isSnackModalOpen && selectedSeat && (
+      {isSnackModalOpen && primarySeat && (
         <SnackModal
-          seatCode={selectedSeat.seat_code || selectedSeat.label || 'C5'}
-          ticketPrice={selectedSeat.price_cents ? Math.round(selectedSeat.price_cents / 100) : 450}
+          seatCode={selectedSeats.map(s => s.seat_code || s.label || 'C5').join(', ')}
+          ticketPrice={totalSeatPrice}
           onClose={() => setIsSnackModalOpen(false)}
           onConfirmSnacks={handleConfirmSnacks}
         />
       )}
 
-      {/* 4. Two-Step OTP & Payment Checkout Modal */}
-      {isPaymentModalOpen && activeHold && selectedSeat && (
+      {isPaymentModalOpen && activeHold && primarySeat && (
         <PaymentModal
           bookingRef={activeHold.booking_ref}
-          seatCode={selectedSeat.seat_code || selectedSeat.label || 'C5'}
+          seatCode={selectedSeats.map(s => s.seat_code || s.label || 'C5').join(', ')}
           amount={totalAmountPaid}
           selectedSnacks={selectedSnacks}
           onClose={() => setIsPaymentModalOpen(false)}
@@ -379,7 +424,6 @@ export function App() {
         />
       )}
 
-      {/* 5. Scannable Digital QR Ticket Receipt Modal */}
       {isReceiptModalOpen && confirmedBookingRef && (
         <TicketReceiptModal
           bookingRef={confirmedBookingRef}
@@ -392,14 +436,12 @@ export function App() {
         />
       )}
 
-      {/* 6. Digital Ticket Wallet Slide-Over Drawer */}
       <MyTicketsDrawer
         isOpen={isTicketsDrawerOpen}
         onClose={() => setIsTicketsDrawerOpen(false)}
         tickets={ticketWallet}
       />
 
-      {/* 7. Live Concurrency Telemetry & Stress Test Widget */}
       <TelemetryWidget
         isOpen={isTelemetryOpen}
         onClose={() => setIsTelemetryOpen(false)}

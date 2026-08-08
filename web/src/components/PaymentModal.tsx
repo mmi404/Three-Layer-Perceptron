@@ -310,20 +310,23 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           ) : (
             /* Step 2: 6-Digit OTP Verification */
             <form onSubmit={handleVerifyOTP} className="space-y-4 animate-fade-in">
-              <div className="p-3.5 rounded-2xl bg-brand-500/10 border border-brand-500/30 text-xs text-brand-300 flex items-center justify-between">
-                <div>
-                  <span className="block font-bold">SMS Sent to {userPhone}</span>
-                  <span className="text-[10px] text-gray-400">
-                    {generatedOtp ? `Hint (Dev Mode): Enter OTP code ${generatedOtp}` : 'Check your phone SMS'}
-                  </span>
+              <div className="p-3.5 rounded-2xl bg-brand-500/10 border border-brand-500/30 text-xs text-brand-300 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold">SMS Sent to {userPhone}</span>
+                  <button
+                    type="button"
+                    onClick={() => setOtpStep('PHONE_INPUT')}
+                    className="text-xs text-gray-400 hover:text-white underline"
+                  >
+                    Change
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setOtpStep('PHONE_INPUT')}
-                  className="text-xs text-gray-400 hover:text-white underline"
-                >
-                  Change
-                </button>
+                {generatedOtp && (
+                  <div className="flex items-center justify-center gap-3 py-2 px-3 rounded-xl bg-dark-800/80 border border-emerald-500/40">
+                    <span className="text-[10px] text-gray-400 uppercase font-bold">Your OTP Code:</span>
+                    <span className="text-2xl font-black text-emerald-400 font-mono tracking-[0.4em]">{generatedOtp}</span>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1.5">
@@ -336,7 +339,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   maxLength={6}
                   value={otpCode}
                   onChange={(e) => setOtpCode(e.target.value)}
-                  placeholder={generatedOtp || '123456'}
+                  placeholder=""
                   required
                   autoFocus
                   className="w-full bg-dark-800 text-white px-4 py-3 rounded-xl border border-gray-700 text-lg font-mono tracking-widest text-center focus:border-brand-500 focus:outline-none"
