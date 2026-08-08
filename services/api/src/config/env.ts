@@ -57,8 +57,10 @@ const schema = z.object({
    */
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(2000),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
-  /** OTP endpoints stay strict — those are the ones bots hammer. */
-  OTP_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(5),
+  /** OTP resends allowed per BOOKING (not per IP) — the gateway drops ~10%. */
+  OTP_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(8),
+  /** OTP guesses allowed per BOOKING. Brute-force guard on a 6-digit code. */
+  OTP_VERIFY_LIMIT_MAX: z.coerce.number().int().positive().default(10),
 });
 
 const parsed = schema.safeParse(process.env);

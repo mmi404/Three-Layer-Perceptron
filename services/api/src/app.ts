@@ -12,6 +12,7 @@ import { healthRouter } from './modules/health/health.routes';
 import { metricsRouter, metricsMiddleware } from './modules/metrics/metrics.routes';
 import { catalogRouter } from './modules/catalog/catalog.routes';
 import { bookingRouter } from './modules/booking/booking.routes';
+import { paymentRouter, gatewayCallbackRouter } from './modules/payment/payment.routes';
 
 /**
  * App assembly. Middleware ORDER matters — it is top to bottom:
@@ -58,10 +59,14 @@ export function createApp() {
 
   // Everything under /api is rate limited, with a high ceiling. Seat
   // contention is resolved in Postgres, not by throttling — see rateLimit.ts.
+  // BEFORE the rate limiter, deliberately — see gatewayCallbackRouter.
+  app.use('/api/v1/gateway', gatewayCallbackRouter);
+
   app.use('/api', rateLimit());
 
   app.use('/api/v1', catalogRouter);
   app.use('/api/v1', bookingRouter);
+  app.use('/api/v1', paymentRouter);
 
   // ORDER IS LOAD-BEARING: 404 after all routes, error handler last of all.
   app.use(notFoundHandler);

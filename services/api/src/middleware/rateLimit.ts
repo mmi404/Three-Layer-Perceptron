@@ -18,14 +18,22 @@ export function rateLimit(opts?: {
   windowMs?: number;
   max?: number;
   keyPrefix?: string;
+  /**
+   * What to count per. Defaults to the caller's IP.
+   *
+   * For OTP endpoints this is the booking reference instead: the abuse we care
+   * about is brute-forcing one booking's code, not how many bookings a single
+   * IP handles. Keying those by IP throttles a legitimate load test, a shared
+   * NAT, or a judge running several flows from one laptop.
+   */
+  keyBy?: (req: Request) => string;
 }): RequestHandler {
   const windowMs = opts?.windowMs ?? env.RATE_LIMIT_WINDOW_MS;
   const max = opts?.max ?? env.RATE_LIMIT_MAX;
   const keyPrefix = opts?.keyPrefix ?? 'rl';
 
   return async (req: Request, res: Response, next: NextFunction) => {
-    // Prefer the authenticated user; fall back to IP for anonymous traffic.
-    const identity = (req as Request & { user?: { id: string } }).user?.id ?? req.ip ?? 'unknown';
+    const identity = opts?.keyBy ? opts.keyBy(req) : (req.ip ?? 'unknown');
     const window = Math.floor(Date.now() / windowMs);
     const key = `${keyPrefix}:${identity}:${window}`;
 
@@ -64,10 +72,31 @@ export function rateLimit(opts?: {
   };
 }
 
+const bookingRefOf = (req: Request): string =>
+  (req.params as { ref?: string }).ref ?? req.ip ?? 'unknown';
+
 /**
- * Tight limit for OTP send/verify — the endpoints bots actually hammer, and
- * the only ones where throttling does not interfere with seat contention.
- * Keyed by phone number where available (see the route), not just IP.
+ * OTP resends, per booking. The gateway drops ~10% of codes on purpose, so a
+ * user must be able to retry — but not indefinitely, since each send costs a
+ * real SMS in a real deployment.
  */
-export const otpRateLimit = (): RequestHandler =>
-  rateLimit({ max: env.OTP_RATE_LIMIT_MAX, windowMs: 15 * 60_000, keyPrefix: 'rl:otp' });
+export const otpSendRateLimit = (): RequestHandler =>
+  rateLimit({
+    max: env.OTP_RATE_LIMIT_MAX,
+    windowMs: 15 * 60_000,
+    keyPrefix: 'rl:otp:send',
+    keyBy: bookingRefOf,
+  });
+
+/**
+ * OTP verification attempts, per booking. This is the brute-force guard: the
+ * code is 6 digits, so a handful of guesses against 10^6 possibilities is not
+ * a meaningful attack surface.
+ */
+export const otpVerifyRateLimit = (): RequestHandler =>
+  rateLimit({
+    max: env.OTP_VERIFY_LIMIT_MAX,
+    windowMs: 15 * 60_000,
+    keyPrefix: 'rl:otp:verify',
+    keyBy: bookingRefOf,
+  });

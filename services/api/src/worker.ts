@@ -4,6 +4,7 @@ import { dequeue, type Job } from './lib/queue';
 import { closeDatabase, waitForDatabase } from './lib/db';
 import { closeRedis } from './lib/redis';
 import { sweepExpired } from './modules/booking/booking.service';
+import { processRefunds, sweepPayments } from './modules/payment/payment.service';
 
 /**
  * WORKER — same image as the API, different entrypoint.
@@ -25,6 +26,8 @@ process.env.SERVICE_NAME = 'worker';
 
 /** Fast, because judges run the stack with a short HOLD_TTL_SECONDS. */
 const SWEEP_INTERVAL_MS = 2000;
+/** Recovery paths only — no need to run them as hot as the hold sweeper. */
+const PAYMENT_SWEEP_INTERVAL_MS = 10_000;
 
 type Handler = (job: Job) => Promise<void>;
 
@@ -45,6 +48,25 @@ async function runSweeper(): Promise<void> {
       logger.error({ err }, 'Expiry sweep failed');
     }
     await new Promise((r) => setTimeout(r, SWEEP_INTERVAL_MS));
+  }
+}
+
+/**
+ * Payment reconciliation, on a slower cadence than the hold sweeper.
+ *
+ * Fails payments whose callback never arrived (releasing their seats), and
+ * refunds money that landed for a booking we had already given up on. Both are
+ * recovery paths, so a 10s tick is plenty.
+ */
+async function runPaymentReconciler(): Promise<void> {
+  while (running) {
+    try {
+      await sweepPayments();
+      await processRefunds();
+    } catch (err) {
+      logger.error({ err }, 'Payment reconciliation failed');
+    }
+    await new Promise((r) => setTimeout(r, PAYMENT_SWEEP_INTERVAL_MS));
   }
 }
 
@@ -82,7 +104,7 @@ async function main(): Promise<void> {
     { sweepIntervalMs: SWEEP_INTERVAL_MS, holdTtlSeconds: env.HOLD_TTL_SECONDS },
     'Worker started',
   );
-  await Promise.all([runSweeper(), runJobLoop()]);
+  await Promise.all([runSweeper(), runPaymentReconciler(), runJobLoop()]);
 }
 
 const shutdown = (signal: string): void => {
