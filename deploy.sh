@@ -22,7 +22,7 @@ else
 fi
 
 COMPOSE="$DOCKER_CMD compose -f docker-compose.yml -f docker-compose.prod.yml"
-HTTP_PORT="$(grep -E '^HTTP_PORT=' .env | cut -d= -f2 || echo 80)"
+HTTP_PORT="$(grep -E '^HTTP_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d '\r\n ' || echo 80)"
 HTTP_PORT="${HTTP_PORT:-80}"
 
 step() { printf '\n\033[1;34m==> %s\033[0m\n' "$1"; }
@@ -47,13 +47,19 @@ step "Running migrations"
 $COMPOSE run --rm migrate
 
 step "Verifying the deployment"
-for i in $(seq 1 20); do
-  if curl -fsS "http://127.0.0.1:${HTTP_PORT}/health" >/dev/null 2>&1; then
-    echo "  /health  OK"
+for i in $(seq 1 30); do
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${HTTP_PORT}/health" 2>/dev/null || echo "000")
+  if [ "$STATUS" = "200" ]; then
+    echo "  /health  OK (HTTP 200)"
     break
   fi
-  [ "$i" = 20 ] && fail "/health never came up. Check: $COMPOSE logs --tail 100"
-  sleep 3
+  if [ "$i" = 30 ]; then
+    echo "  Last status code: $STATUS"
+    $COMPOSE ps
+    $COMPOSE logs --tail 30 api traefik
+    fail "/health never came up (HTTP $STATUS). Check logs above."
+  fi
+  sleep 2
 done
 
 curl -fsS "http://127.0.0.1:${HTTP_PORT}/ready" | head -c 300; echo
