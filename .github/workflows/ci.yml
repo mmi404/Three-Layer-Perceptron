@@ -214,6 +214,8 @@ jobs:
                   bash infra/ec2-setup.sh https://github.com/mmi404/Three-Layer-Perceptron.git
                 else
                   cd ~/apps/cinemaseat
+                  git fetch origin main
+                  git reset --hard origin/main
                   chmod +x deploy.sh
                   ./deploy.sh
                 fi

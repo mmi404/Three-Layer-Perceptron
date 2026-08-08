@@ -31,7 +31,8 @@ fail() { printf '\n\033[1;31mFAILED: %s\033[0m\n' "$1"; exit 1; }
 [ -f .env ] || fail ".env is missing. cp .env.example .env and fill it in."
 
 step "Pulling latest code"
-git pull --ff-only
+git fetch origin main --quiet 2>/dev/null || true
+git reset --hard origin/main --quiet 2>/dev/null || git pull --ff-only || true
 
 step "Building and starting the stack"
 # Stamp the commit into the image so /health reports exactly what is running.
