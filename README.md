@@ -1,15 +1,37 @@
-# <PROJECT NAME>
+# CinemaSeat
 
-> **Live:** <https://REPLACE_ME>  ·  **CI:** ![CI](https://github.com/<user>/<repo>/actions/workflows/ci.yml/badge.svg)
+> A cinema ticketing system that stays usable under a premiere rush and **never sells the same seat twice.**
 
-<One sentence: what this is and who it is for.>
+**Live:** `http://<DEPLOY_HOST>` · **Health:** `http://<DEPLOY_HOST>/health`
 
-Built for **Zero to Production — Phase 2**, IEEE Computer Society CUET Student Branch Chapter, 8 August 2026.
+Built for **Zero to Production — Phase 2**, IEEE Computer Society CUET Student Branch Chapter, in partnership with Poridhi.io.
 
 ---
 
 ## Contents
-1. [Architecture](#architecture) · 2. [Tech choices](#tech-choices-and-why) · 3. [Quick start](#quick-start) · 4. [Configuration](#configuration) · 5. [API reference](#api-reference) · 6. [Testing](#testing) · 7. [Deployment](#deployment) · 8. [Demo credentials](#demo-credentials) · 9. [Known limitations](#known-limitations) · 10. [Acknowledgements](#acknowledgements)
+
+[What works](#what-works) · [Architecture](#architecture) · [How it never double-books](#how-it-never-double-books) · [Run it](#run-it) · [Judge's quick reference](#judges-quick-reference) · [API](#api) · [Testing the gateway's misbehaviour](#testing-the-gateways-misbehaviour) · [Proof](#proof-milestone-4) · [CI/CD](#cicd) · [Deployment](#deployment) · [What does not work](#what-does-not-work) · [Acknowledgements](#acknowledgements)
+
+---
+
+## What works
+
+| | |
+|---|---|
+| Browse movies, showtimes, theatres | ✅ |
+| Live seat map per showtime | ✅ |
+| Hold seats, verify phone by OTP, pay, confirm | ✅ |
+| Automatic release of unpaid holds | ✅ |
+| **Zero oversell under 100 concurrent buyers for one seat** | ✅ verified, see [Proof](#proof-milestone-4) |
+| Duplicate gateway callbacks handled idempotently | ✅ |
+| Callback arriving *before* `/charge` returns | ✅ |
+| Payment failure releases seats | ✅ |
+| Works with the gateway container **stopped** | ✅ bonus |
+| Circuit breaker on the gateway | ✅ bonus |
+| Prometheus metrics, structured logs with request IDs | ✅ bonus |
+| Nginx + Traefik reverse proxy, horizontally scalable API | ✅ bonus |
+| Rate limiting, input validation on every entry point | ✅ bonus |
+| AWS EC2 deployment with CI-gated CD | ✅ bonus |
 
 ---
 
@@ -17,212 +39,430 @@ Built for **Zero to Production — Phase 2**, IEEE Computer Society CUET Student
 
 ```mermaid
 graph TD
-    U[Client] --> T[Traefik<br/>TLS · routing · load balancing]
-    T --> W[web<br/>React + Vite → nginx]
-    T --> A[api<br/>Node + TS + Express<br/>N replicas, stateless]
-    A --> P[(Postgres 16<br/>system of record)]
-    A --> R[(Redis 7<br/>cache · queue · rate limit)]
-    R --> K[worker<br/>same image, async jobs]
-    K --> P
+    U[Browser] --> T["Traefik<br/>edge routing + load balancing"]
+    T --> W["web<br/>React → static → nginx"]
+    T --> A["api<br/>Node + TS + Express<br/>stateless, N replicas"]
+    A --> P[("Postgres 16<br/>single arbiter of seat state")]
+    A --> R[("Redis 7<br/>cache + rate limit")]
+    A -.->|"charge / otp"| G["gateway<br/>(provided, misbehaves on purpose)"]
+    G -.->|"callback, 2-15s later"| A
+    K["worker<br/>same image as api"] --> P
+    K --> R
+
+    classDef ext fill:#3a2e1c,stroke:#6b4a22;
+    class G ext;
 ```
 
-**Why these boundaries.** We split on **failure and scaling profiles**, not on domain nouns:
+**Three services we wrote** (`api`, `worker`, `web`), plus Traefik, Postgres, Redis, and the provided gateway. One `docker compose up`.
 
-| Service | Responsibility | Scaling profile |
-|---|---|---|
-| `api` | Synchronous request handling. Stateless — no in-process session or counter state | Horizontal, behind Traefik |
-| `worker` | Asynchronous work the user never waits for. **Same image as `api`**, different entrypoint | Independent of request traffic |
-| `web` | Static React build served by nginx. No Node runtime in production | Trivially cacheable |
-| `postgres` | System of record | Vertical; read replicas first |
-| `redis` | Cache, job queue, and shared rate-limit counters | Vertical |
+### Why these boundaries
 
-`api` and `worker` share one image, one dependency tree and one test suite — so the split costs almost nothing in build complexity while buying real operational separation.
+We split on **failure and scaling profiles**, not on domain nouns.
 
-## Tech choices (and why)
+| Service | Why it is separate |
+|---|---|
+| `api` | Stateless and latency-sensitive. All seat contention resolves in Postgres, so replicas need no coordination with each other and scale horizontally behind Traefik. |
+| `worker` | Runs the expiry sweeper and payment reconciliation. Throughput-sensitive, tolerant of being slow, and its failures must never touch the request path. **Shares the API's image** — one build, one test suite, two scaling profiles. |
+| `web` | Static build served by nginx. No Node runtime in production. |
 
-| Choice | Reason | Rejected alternative |
-|---|---|---|
-| **TypeScript + Express** | Types make the API contract explicit; `zod` gives runtime validation from the same shapes | Plain JS — no contract enforcement at the boundary |
-| **Postgres** | <Relational data, needs transactions/constraints> | <MongoDB — we would have to enforce these in app code> |
-| **Redis** | Cache + queue + rate limiting in one dependency | In-memory — breaks the moment `api` has more than one replica |
-| **Traefik** | Auto-discovers containers by label; load balances with zero config files | Hand-written nginx — more config to maintain and get wrong |
-| **Raw SQL migrations** | Reviewable files in git, run as an explicit deploy step | ORM `synchronize: true` — silently rewrites production schema on boot |
-| **Docker Compose** | Whole stack up in one command; matches the deployment target | Kubernetes — real operational cost, no benefit at this scale |
+We did **not** split further. A service per domain noun (booking / payment / catalog) would have bought us distributed transactions across a boundary that has to be atomic — seats and bookings must move together — in exchange for nothing at this scale. See [DECISIONS.md](DECISIONS.md).
 
 ---
 
-## Quick start
+## How it never double-books
 
-**Prerequisites:** Docker and Docker Compose. Nothing else.
+This is the heart of the system, so it is worth stating precisely.
 
-```bash
-git clone https://github.com/<user>/<repo>.git
-cd <repo>
-cp .env.example .env          # then edit the secrets
+**`show_seats` is the single serialization point.** One row per `(showtime_id, seat_id)`, composite primary key. Every seat-state change is a **guarded UPDATE** whose `WHERE` clause *is* the state machine:
 
-docker compose up -d --build  # brings up the ENTIRE stack
-docker compose run --rm migrate
-docker compose run --rm seed  # demo data
+```sql
+-- 1. Lock the contended rows, always in the same order.
+--    Deterministic ordering is what stops two overlapping multi-seat
+--    requests from deadlocking against each other.
+SELECT seat_id, price_cents, status, hold_expires_at, booking_id
+  FROM show_seats
+ WHERE showtime_id = $1 AND seat_id = ANY($2::uuid[])
+ ORDER BY seat_id
+   FOR UPDATE;
 
-curl http://localhost:8080/health
-open http://localhost:8080
+-- 2. The guarded transition. A seat is claimable only if it is free, or
+--    held by someone whose time ran out.
+UPDATE show_seats
+   SET status = 'HELD', booking_id = $3,
+       hold_expires_at = now() + make_interval(secs => $4)
+ WHERE showtime_id = $1
+   AND seat_id = ANY($2::uuid[])
+   AND (status = 'AVAILABLE'
+        OR (status = 'HELD' AND hold_expires_at < now()))
+ RETURNING seat_id;
+
+-- 3. rowcount is the verdict. Fewer rows than seats requested means
+--    somebody else won at least one of them -> ROLLBACK, respond 409.
 ```
 
-**Local development** (hot reload, infrastructure in Docker):
+Three properties follow:
+
+1. **Exactly one winner.** Concurrent transactions queue on the row lock. When a loser's turn comes, the row it wanted no longer satisfies the `WHERE`, so it updates zero rows and gets a clean `409`. Overselling is not unlikely here; it is unrepresentable.
+2. **All-or-nothing.** A multi-seat request that cannot claim every seat rolls back entirely. No partial holds.
+3. **Expiry does not depend on the worker.** The `OR (status='HELD' AND hold_expires_at < now())` clause means a timed-out hold is claimable *the instant it expires*. The background sweeper only refreshes the seat map for onlookers. **Stop the worker container and holds still expire correctly.**
+
+The database also enforces what the code promises:
+
+```sql
+CONSTRAINT held_seats_have_a_booking
+  CHECK (status = 'AVAILABLE' OR booking_id IS NOT NULL)
+
+-- at most one live payment per booking, structurally
+CREATE UNIQUE INDEX one_live_payment_per_booking ON payments (booking_id)
+  WHERE status IN ('INITIATED','PENDING','SUCCEEDED');
+```
+
+### Duplicate callbacks
+
+`payment_events.event_id` is a **primary key**, and every callback starts with:
+
+```sql
+INSERT INTO payment_events (event_id, ...) VALUES ($1, ...)
+ON CONFLICT (event_id) DO NOTHING RETURNING event_id;
+```
+
+No row returned means we have seen it — we answer `200` and do nothing else. Because this is a constraint rather than a `SELECT`-then-`INSERT`, two API replicas can receive the same duplicate simultaneously and exactly one will apply it.
+
+Every state/status pair has a defined action (`services/api/src/modules/payment/payment.rules.ts`):
+
+| Payment is | Callback says | We do | Why |
+|---|---|---|---|
+| `PENDING` | `SUCCEEDED` | **CONFIRM** | the normal path |
+| `SUCCEEDED` | `SUCCEEDED` | **IGNORE** | duplicate; no second confirm, no double revenue |
+| `SUCCEEDED` | `FAILED` | **IGNORE** | a late failure must never revoke a paid ticket |
+| `PENDING` | `FAILED` | **FAIL** | release the seats |
+| `FAILED` | `SUCCEEDED` | **REFUND** | we already released those seats; someone else may hold them now, so confirming would oversell. Refund instead. |
+
+**We always answer `200`**, including for duplicates and unparseable bodies — a non-200 tells the gateway delivery failed and it retries up to 8 times, so a parse error would turn one bad message into a flood.
+
+---
+
+## Run it
+
+**Prerequisites: Docker. Nothing else.** No `.env`, no manual steps.
 
 ```bash
-docker compose up -d postgres redis
+git clone <repo-url> && cd cinemaseat
+docker compose up
+```
+
+That is the whole thing. Migrations and demo seed data run automatically as part of `up`; every configuration value has a working default.
+
+- App: <http://localhost:8080>
+- Health: <http://localhost:8080/health>
+- Metrics: <http://localhost:8080/metrics>
+- Gateway: <http://localhost:9000/health>
+
+Cold boot from a wiped state takes about **85 seconds**, most of it image build.
+
+### Watching a hold expire
+
+```bash
+HOLD_TTL_SECONDS=10 docker compose up -d
+python loadtest/scenario-b.py
+```
+
+`HOLD_TTL_SECONDS` is read from the environment and has no hardcoded fallback anywhere in the business logic.
+
+### Local development with hot reload
+
+```bash
+docker compose up -d postgres redis gateway
 cd services/api && npm install && npm run dev
 cd web && npm install && npm run dev     # http://localhost:5173
 ```
 
 ---
 
-## Configuration
+## Judge's quick reference
 
-Every environment-specific value is an environment variable. **No secrets are committed**; `.env` is gitignored and `.env.example` documents every key. The app validates its config at boot (`src/config/env.ts`) and refuses to start on bad input rather than failing later at request time.
+The two requests the problem statement asks us to document exactly.
 
-| Variable | Purpose | Default |
-|---|---|---|
-| `HTTP_PORT` | Host port for Traefik | `8080` |
-| `DATABASE_URL` | Postgres connection string | — |
-| `REDIS_URL` | Redis connection string | — |
-| `JWT_SECRET` | Token signing key, min 32 chars | — |
-| `CORS_ORIGINS` | Comma-separated allowlist (never `*`) | `http://localhost:5173` |
-| `RATE_LIMIT_MAX` | Requests per window per identity | `100` |
-| `LOG_LEVEL` | pino level | `info` |
+### Fetch a seat map
+
+```bash
+curl -s http://localhost:8080/api/v1/showtimes/{SHOWTIME_ID}/seats
+```
+
+```jsonc
+{
+  "showtime": {
+    "id": "2e1a2fcd-…", "movie_title": "Spider-Man: Brand New Day",
+    "hall_name": "Hall 1", "theatre_name": "Star Cineplex",
+    "starts_at": "2026-08-08T08:00:00.000Z", "rows": 8, "cols": 12
+  },
+  "seats": [
+    { "seat_id": "5fe5305b-…", "row": "F", "col": 12, "label": "F12",
+      "status": "available", "price_cents": 45000 }
+  ],
+  "summary": { "available": 96, "held": 0, "booked": 0 }
+}
+```
+
+`status` is one of `available` | `held` | `booked`. A hold past its deadline reports as `available` even before the sweeper runs.
+
+### Hold a seat
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/holds \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "showtime_id": "2e1a2fcd-…",
+        "seat_ids": ["5fe5305b-…"],
+        "phone": "+8801700000000"
+      }'
+```
+
+**`201 Created`**
+
+```jsonc
+{
+  "booking_ref": "bk_232f3fdc80c1",
+  "showtime_id": "2e1a2fcd-…",
+  "status": "HELD",
+  "seats": [{ "seat_id": "5fe5305b-…", "label": "F12", "price_cents": 45000 }],
+  "amount_cents": 45000,
+  "expires_at": "2026-08-08T05:12:34.567Z",
+  "hold_ttl_seconds": 120
+}
+```
+
+**`409 Conflict`** — somebody else got there first:
+
+```jsonc
+{
+  "error": {
+    "code": "CONFLICT",
+    "message": "One or more seats are no longer available",
+    "requestId": "9131b99a-…",
+    "details": { "unavailable_seats": [{ "seat_id": "…", "label": "F12", "status": "HELD" }] }
+  }
+}
+```
+
+### Get the IDs to use
+
+```bash
+curl -s http://localhost:8080/api/v1/movies \
+  | python3 -c "import sys,json;d=json.load(sys.stdin)['data'][0];print(d['title'],d['showtimes'][0]['id'])"
+```
 
 ---
 
-## API reference
+## API
 
-Base URL: `/api/v1` · All responses JSON · All errors share one shape.
+Base `/api/v1`. Every error shares one shape and carries a `requestId` that matches the `X-Request-Id` header and every server log line for that request.
 
-**Error format** — every error carries a `requestId` that matches the `X-Request-Id` response header and every server log line for that request:
-
-```json
-{ "error": { "code": "VALIDATION_ERROR", "message": "Request validation failed",
-             "requestId": "…", "details": [{ "field": "title", "message": "Title is required" }] } }
-```
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/health` | Liveness. Checks nothing external, so it stays green with the gateway down. Reports the commit it was built from. |
+| `GET` | `/ready` | Readiness. Pings Postgres and Redis. **Never** the gateway. |
+| `GET` | `/metrics` | Prometheus exposition format. |
+| `GET` | `/api/v1/movies` | Movies with showtimes nested (single query). |
+| `GET` | `/api/v1/showtimes/:id/seats` | Live seat map. |
+| `POST` | `/api/v1/holds` | `201` / `409` / `404` / `422`. |
+| `GET` | `/api/v1/bookings/:ref` | Full status. The client polls this. |
+| `POST` | `/api/v1/bookings/:ref/otp/send` | `202`. Rate limited per booking. |
+| `POST` | `/api/v1/bookings/:ref/otp/verify` | `200` / `400`. |
+| `POST` | `/api/v1/bookings/:ref/pay` | **`202`, returns in ~60 ms.** Never waits for the gateway. |
+| `POST` | `/api/v1/gateway/callback` | Always `200`. Mounted ahead of the rate limiter. |
 
 | Status | Meaning |
 |---|---|
-| `200` / `201` / `204` | Success |
-| `400` | Malformed request |
-| `404` | Resource does not exist |
-| `409` | Business-rule violation (e.g. an invalid state transition) |
-| `422` | Validation failed — `details` lists the offending fields |
-| `429` | Rate limited — see the `Retry-After` header |
-| `500` | Unexpected server error (details logged, never returned) |
+| `409` | Business-rule conflict — seat taken, hold expired, payment already in flight |
+| `422` | Validation failed; `details` lists the offending fields |
+| `429` | Rate limited (OTP endpoints only, keyed per booking) |
+| `503` | Payment gateway unavailable — never a `500` |
 
-### Endpoints
+### Getting your OTP
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/health` | Liveness. Checks nothing external. Returns the serving `instance` |
-| `GET` | `/ready` | Readiness. Pings Postgres and Redis; `503` if either is down |
-| `GET` | `/metrics` | Prometheus exposition format |
-| `GET` | `/api/v1/items` | List. `?limit=` (max 100) `&cursor=` `&status=` — **cursor paginated** |
-| `POST` | `/api/v1/items` | Create → `201` |
-| `GET` | `/api/v1/items/:id` | Fetch one |
-| `PATCH` | `/api/v1/items/:id` | Update. Status changes go through the state machine |
-| `DELETE` | `/api/v1/items/:id` | Delete → `204` |
+The provided gateway prints codes to **its own stdout** and drops ~10% on purpose. There is no channel that delivers them to us:
 
-<!-- Replace `items` with the real resources. Keep the table. -->
+```bash
+docker compose logs gateway | grep bk_232f3fdc80c1
+# [ ... ] OTP  ref=bk_232f3fdc80c1 code=283732 delivered
+```
 
 ---
 
-## Testing
+## Testing the gateway's misbehaviour
+
+Send `X-Debug-Force` to `/pay`; we pass it through as the gateway's `X-Mock-Force`.
 
 ```bash
-cd services/api
-npm test              # unit tests
-npm run test:watch
-npm run lint && npm run typecheck
+curl -X POST http://localhost:8080/api/v1/bookings/{REF}/pay -H 'X-Debug-Force: duplicate'
 ```
 
-**Strategy: test the business rules, not the framework.** Core domain logic lives in pure functions (`*.rules.ts`) that import no database, no HTTP and no config — so their tests need no containers, no mocks and no fixtures, and they fail for exactly one reason: someone changed a domain rule.
+`success` · `fail` · `duplicate` · `race` · `timeout`. Set `GATEWAY_MODE=deterministic` for a 2 s always-succeeds gateway while building — **turn it off before believing any measurement.**
 
-CI runs lint → typecheck → migrations → tests against real Postgres and Redis service containers, then builds both images and boots the full stack to smoke-test `/health` through the proxy.
+```bash
+python loadtest/e2e-flow.py       # all four chaos modes, end to end
+```
+
+---
+
+## Proof (Milestone 4)
+
+All numbers measured against the running stack. Reproduce with the scripts in [`loadtest/`](loadtest/).
+
+### Scenario A — one seat, many buyers ✅
+
+```
+python loadtest/scenario-a.py http://localhost:8080 100
+
+  contended seat: F12
+  requests sent      : 100
+  successful holds   : 1
+  rejected (409)     : 99
+  other responses    : none
+  wall clock         : 1560 ms
+  latency p50/p95/max: 1014 / 1415 / 1440 ms
+
+VERIFICATION (from the seat map, not from our own counters)
+  seat F12 status    : held
+  times seat is held : 1
+  OVERSELL           : 0
+```
+
+100 buyers, one seat, one burst. **Oversell: 0.** The p50 of ~1 s is the queue on a single row lock — 100 transactions serialising on one seat is exactly the intended behaviour, not a bottleneck.
+
+### Scenario B — the abandoned hold ✅
+
+```
+HOLD_TTL_SECONDS=10 docker compose up -d && python loadtest/scenario-b.py
+
+  T+   0.6s  buyer 1 holds seat A6   ref=bk_b2b1beb7fbd5
+  T+   0.7s  buyer 2 tries early  -> HTTP 409 CONFLICT
+  T+   0.7s  buyer 1 walks away
+  T+  11.3s  seat returned to AVAILABLE
+  T+  11.3s  buyer 2 holds it     -> HTTP 201 ref=bk_50ab8c7fb319
+  T+  11.3s  buyer 1's booking is now EXPIRED
+```
+
+### Bonus — fault isolation with the gateway stopped ✅ 13/13
+
+```
+bash loadtest/fault-isolation.sh
+
+  GET /health                        200   (0.011s)
+  GET /ready                         200
+  GET /api/v1/movies                 200
+  GET /api/v1/showtimes/:id/seats     200
+  POST /api/v1/holds                 201   <- holds never touch the gateway
+  POST otp/send                      503   <- degraded, never 500
+
+  circuit breaker latency per attempt:
+      attempt 2: 3.137s
+      attempt 3: 3.139s      <- breaker opens
+      attempt 4: 0.016s      <- 200x faster
+```
+
+A stopped container costs ~4 s per call in DNS timeout, and under load each of those occupies a request slot doing work that cannot succeed. Three consecutive failures open the circuit for 10 s.
+
+### End-to-end across every chaos mode ✅ 5/5
+
+| Forced mode | Result |
+|---|---|
+| clean success | `CONFIRMED` after 14.6 s |
+| **duplicate callback** | `CONFIRMED` **once**; `gateway_callbacks_total{dedup="hit"}` incremented |
+| **race** (callback before `/charge` returns) | `CONFIRMED` — the payment row is committed *before* we call the gateway |
+| failed payment | `FAILED`, seat returned to `available` |
+
+Database integrity afterwards: one payment per booking, at most one `SUCCEEDED`, revenue counted exactly once.
+
+### Test suite
+
+```
+42 tests passing
+  ✓ booking.concurrency.test.ts   6 tests   (real Postgres)
+      50 simultaneous holds on one seat -> 1 win, 49 clean 409s
+      all-or-nothing multi-seat, reverse-order deadlock probe,
+      expired-hold reclaim, sweeper releases + marks EXPIRED
+  ✓ booking.rules.test.ts        18 tests
+  ✓ payment.rules.test.ts        13 tests   (full callback decision table)
+  ✓ catalog.rules.test.ts         5 tests
+```
+
+### Scenario C — breakpoint
+
+Not completed. See [What does not work](#what-does-not-work).
+
+---
+
+## CI/CD
+
+`.github/workflows/ci.yml` — one pipeline, change-aware.
+
+```
+changes ─┬─> test       (lint, typecheck, migrate, 42 tests vs real PG + Redis)
+         └─> web-build
+                 └─> stack   (compose up from clean clone, health, provenance,
+                              Scenario A, fault isolation)
+                        └─> deploy   (main branch only)
+```
+
+- CI runs on every push and on PRs to `main`; **nothing merges without it passing.**
+- CD runs **only** on pushes to `main`, and only after the whole stack test is green.
+- Change-aware: a docs-only commit skips both builds.
+- The stack job creates **no `.env`**, which is what keeps the clean-clone promise honest.
+- After deploying, CD re-reads `/health` on the public URL and asserts the reported commit matches. A deploy that silently served a cached image fails the pipeline.
 
 ---
 
 ## Deployment
 
-Deployed to **<TARGET>** at <URL>.
+**AWS EC2**, provisioned from the repository. The lab account is disposable, so nothing is configured by hand:
 
 ```bash
-# On the server
-git clone https://github.com/<user>/<repo>.git && cd <repo>
-cp .env.example .env && $EDITOR .env      # real secrets
-
-docker compose up -d --build
-docker compose run --rm migrate
-docker compose run --rm seed
-curl -f http://localhost:${HTTP_PORT}/health
+bash infra/ec2-setup.sh <repo-url>
 ```
 
-**Horizontal scaling.** The API is stateless, so replicas need no coordination:
+Installs Docker, adds swap, clones, generates `.env`, and runs `./deploy.sh`. Instance: **t3.small minimum** — `t2.micro`'s 1 GB cannot hold seven containers. Security group: 22, 80, 9000.
+
+Redeploys are one command, and `deploy.sh` fails loudly if the live version does not match what it just built:
+
+```bash
+ssh ubuntu@<host> 'cd ~/apps/cinemaseat && ./deploy.sh'
+```
+
+### Horizontal scaling
+
+The API is stateless, so:
 
 ```bash
 docker compose up -d --scale api=3
-for i in $(seq 1 10); do curl -s localhost:8080/health | jq -r .instance; done
-# → the instance id rotates: Traefik is round-robining
+for i in $(seq 1 9); do curl -s localhost:8080/health | jq -r .instance; done
+# instance id rotates: Traefik is round-robining
 ```
 
-### Production readiness
-
-- Multi-stage builds, pinned base images, non-root user, `.dockerignore`
-- Healthchecks on every service; Traefik pulls unhealthy replicas out of rotation
-- Graceful shutdown on `SIGTERM` — in-flight requests drain before exit
-- Structured JSON logs with a request id correlated across services
-- Redis-backed rate limiting (**shared across replicas**, unlike in-process counters)
-- `helmet` security headers, CORS allowlist, 100 KB body cap, parameterised SQL
-- Cursor pagination on every list endpoint — no unbounded queries
-- Prometheus metrics at `/metrics`
-- Postgres in a named volume, on an internal network with no host exposure in production
+Rate-limit counters live in Redis precisely because of this — in-process counters would let 3× the configured traffic through.
 
 ---
 
-## Demo credentials
+## What does not work
 
-| Role | Email | Password |
-|---|---|---|
-| <Admin> | `<demo@example.com>` | `<password>` |
-| <User> | `<user@example.com>` | `<password>` |
+Stated honestly.
 
----
-
-## Known limitations
-
-*Honest list. <!-- Fill this in truthfully — the organisers explicitly reward this over a misrepresented system. -->*
-
-- **Job queue is at-most-once.** A job popped by a worker that then crashes is lost. At-least-once needs `BRPOPLPUSH` onto a processing list plus an ack.
-- **Rate limiting uses a fixed window**, which permits a 2× burst across a window boundary. A sliding-window log fixes it at the cost of memory.
-- **Migrations are forward-only.** No down migrations, so a rollback means restoring from backup.
-- **No distributed tracing.** Structured logs and metrics exist; there is no OpenTelemetry span propagation, so cross-service latency attribution is manual.
-- **No automated backups.** `pg_dump` on a schedule is the next step.
-- <Add whatever you actually cut.>
-
-### What we would do next
-1. <…>
-2. <…>
+- **Scenario C (breakpoint) not run.** We know from Scenario A that the contended-seat path serialises at ~1 s p50 for 100 buyers, but we have not ramped to find the knee or attributed the bottleneck. Our expectation is the Postgres connection pool first (10 per replica), then hot-row contention — but an untested expectation is worth nothing, which is why we are not claiming it as a result.
+- **Job queue is at-most-once.** A job popped by a worker that then crashes is lost. At-least-once needs `BRPOPLPUSH` onto a processing list plus an ack. Only refunds use the queue, and they are also retried by the reconciler, so nothing is silently dropped in practice.
+- **Rate limiting uses a fixed window**, which permits a 2× burst across a window boundary.
+- **The circuit breaker is per-process.** With three replicas each trips independently, so a dead gateway costs up to 3×3 slow calls instead of 3. A Redis-backed breaker would fix it.
+- **Migrations are forward-only.** No down migrations; a rollback means restoring from a backup, and we have no automated backups.
+- **No distributed tracing.** Structured logs with request IDs and Prometheus metrics exist; there is no OpenTelemetry span propagation, so cross-service latency attribution is manual.
+- **No authentication.** Anyone with a booking reference can act on it. Real deployment needs accounts and ownership checks; we scoped it out to protect the correctness work.
+- **Seat map polls every 2 s** rather than pushing. A user can see a seat as available up to ~2 s after someone takes it — they then get a clean `409`, which is correct but not instant.
 
 ---
 
 ## Acknowledgements
 
-*Every external library, API, dataset and service used — this is a rule, not a courtesy.*
-
 **Runtime:** Express · zod · pg · ioredis · pino · helmet · cors · prom-client · React · Vite
-**Infrastructure:** Docker · Docker Compose · Traefik · PostgreSQL · Redis · nginx · GitHub Actions
-**External APIs / datasets:** <list, or "none">
-**AI assistance:** Development was AI-assisted, as permitted under §6.3 of the rulebook. Project scaffolding (Dockerfiles, CI workflow, proxy configuration, logging and error-handling setup) was prepared in advance as permitted under §6.2 and forms the first commit; everything problem-specific was built during the event. All architectural decisions are our own and every team member can explain the system.
+**Infrastructure:** Docker · Docker Compose · Traefik · PostgreSQL 16 · Redis 7 · nginx · GitHub Actions
+**Provided by the organisers:** `asifmahmoud414/mock-gateway` — the payment and OTP gateway. Not mocked by us.
 
-## Team
-
-| Name | Role |
-|---|---|
-| <name> | <backend / infra / deployment> |
-| <name> | <frontend> |
-| <name> | <docs / demo> |
+Project scaffolding (Dockerfiles, CI workflow, logging and error-handling setup) started from our own generic starter template, as permitted under "standard scaffolding is fine". All CinemaSeat domain logic — schema, concurrency model, payment state machine, UI — was written during the event. Development was AI-assisted; every architectural decision is ours and every team member can explain the system.
