@@ -66,11 +66,17 @@ export const SeatMap: React.FC<SeatMapProps> = ({
     return { tier: 'Classic Cinema', spot: 'Wide Panoramic Field of View', price: '৳450' };
   };
 
-  const getSeatId = (seat: Seat) => seat.seat_id || seat.id || seat.seat_code || '';
-
   const getSeatStatus = (seat: Seat) => {
-    const id = getSeatId(seat);
-    if (selectedSeatIds.includes(id)) return 'SELECTED';
+    const matchId = (sid: string) => 
+      sid === seat.seat_id || 
+      sid === seat.id || 
+      sid === seat.seat_code || 
+      sid === seat.label ||
+      (seat.row && seat.col && sid === `${seat.row}${seat.col}`);
+
+    const isSelected = selectedSeatIds.some(matchId);
+    if (isSelected) return 'SELECTED';
+
     const statusUpper = (seat.status || 'AVAILABLE').toUpperCase();
     if (statusUpper === 'BOOKED' || statusUpper === 'SOLD') return 'BOOKED';
     if (statusUpper === 'HELD') return 'HELD';
@@ -88,7 +94,7 @@ export const SeatMap: React.FC<SeatMapProps> = ({
           </span>
         </div>
         <p className="text-[10px] text-gray-400 uppercase tracking-widest font-mono">
-          Click seats to select • Click again to deselect • Then hold all at once
+          Click seats to select • Click again to deselect • Instant responsive selection
         </p>
       </div>
 
@@ -113,25 +119,25 @@ export const SeatMap: React.FC<SeatMapProps> = ({
                   return (
                     <button
                       key={seat.seat_id || seat.id || seatCode}
-                      disabled={status === 'BOOKED' || status === 'HELD'}
+                      disabled={status === 'BOOKED'}
                       onClick={() => onToggleSeat(seat)}
                       onMouseEnter={() => setHoveredSeat(seat)}
                       onMouseLeave={() => setHoveredSeat(null)}
                       className={`relative w-8 h-8 sm:w-10 sm:h-10 rounded-xl font-mono text-[11px] sm:text-xs font-bold transition-all duration-200 flex items-center justify-center ${
                         status === 'SELECTED'
-                          ? 'bg-gradient-to-tr from-brand-600 to-amber-400 text-white shadow-lg shadow-brand-500/50 scale-110 ring-2 ring-white/70'
+                          ? 'bg-gradient-to-tr from-brand-600 to-amber-400 text-white shadow-lg shadow-brand-500/50 scale-110 ring-2 ring-white/70 active:scale-95'
                           : status === 'BOOKED'
                           ? 'bg-dark-800/40 text-gray-600 border border-gray-800/80 cursor-not-allowed'
                           : status === 'HELD'
-                          ? 'bg-amber-950/60 text-amber-500 border border-amber-500/40 cursor-not-allowed'
+                          ? 'bg-amber-950/60 text-amber-500 border border-amber-500/40 hover:border-amber-400 active:scale-95'
                           : 'bg-dark-800/90 text-gray-200 border border-gray-700 hover:border-brand-400 hover:text-white hover:scale-105 hover:bg-dark-700 active:scale-95'
                       }`}
                       title={`Seat ${seatCode} - ${status === 'SELECTED' ? 'Click to deselect' : 'Click to select'}`}
                     >
-                      {status === 'HELD' ? (
-                        <Lock className="w-3.5 h-3.5 text-amber-400" />
-                      ) : status === 'BOOKED' ? (
+                      {status === 'BOOKED' ? (
                         <span className="text-[10px] text-gray-600 font-black">✕</span>
+                      ) : status === 'HELD' ? (
+                        <Lock className="w-3.5 h-3.5 text-amber-400" />
                       ) : (
                         <span>{seat.col || seat.seat_number || seatCode.slice(1)}</span>
                       )}

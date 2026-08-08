@@ -35,6 +35,15 @@ git fetch origin main --quiet 2>/dev/null || true
 git reset --hard origin/main --quiet 2>/dev/null || git pull --ff-only || true
 
 step "Building and starting the stack"
+# Ensure SSL certificates exist for HTTPS proxy
+mkdir -p infra/certs
+if [ ! -f infra/certs/fullchain.pem ] || [ ! -f infra/certs/privkey.pem ]; then
+  openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+    -keyout infra/certs/privkey.pem \
+    -out infra/certs/fullchain.pem \
+    -subj "/CN=cinemaseat" 2>/dev/null || true
+fi
+
 # Free disk space: remove old images and build cache from previous deploys.
 $DOCKER_CMD system prune -af --volumes 2>/dev/null || true
 # Stamp the commit into the image so /health reports exactly what is running.

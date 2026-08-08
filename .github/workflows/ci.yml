@@ -143,6 +143,11 @@ jobs:
 
       - name: Bring the whole stack up from a clean clone
         run: |
+          mkdir -p infra/certs
+          openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+            -keyout infra/certs/privkey.pem \
+            -out infra/certs/fullchain.pem \
+            -subj "/CN=cinemaseat" || true
           export BUILD_SHA=$(git rev-parse --short HEAD)
           docker compose up -d --build
 

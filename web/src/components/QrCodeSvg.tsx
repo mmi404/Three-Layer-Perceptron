@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useState } from 'react';
 
 interface QrCodeSvgProps {
   value: string;
@@ -13,11 +13,14 @@ export const QrCodeSvg: React.FC<QrCodeSvgProps> = ({
   fgColor = '#060913',
   bgColor = '#ffffff'
 }) => {
-  const matrix = useMemo(() => {
+  const [imgError, setImgError] = useState(false);
+
+  // Generate deterministic QR grid matrix
+  const matrix = React.useMemo(() => {
     const gridDim = 25;
     const grid: boolean[][] = Array.from({ length: gridDim }, () => Array(gridDim).fill(false));
 
-    // 1. Draw 7x7 Finder Patterns at 3 corners
+    // 1. Draw 7x7 Position Detection Patterns at 3 corners
     const drawFinder = (top: number, left: number) => {
       for (let r = 0; r < 7; r++) {
         for (let c = 0; c < 7; c++) {
@@ -52,17 +55,17 @@ export const QrCodeSvg: React.FC<QrCodeSvgProps> = ({
     // 4. Dark Module
     grid[gridDim - 8][8] = true;
 
-    // 5. Populate Data Modules with deterministic hash bits
+    // 5. Populate Data Modules with deterministic hash bits from payload
+    const str = value || 'CINEMASEAT';
     let hash = 0;
-    for (let i = 0; i < value.length; i++) {
-      hash = (hash << 5) - hash + value.charCodeAt(i);
+    for (let i = 0; i < str.length; i++) {
+      hash = (hash << 5) - hash + str.charCodeAt(i);
       hash |= 0;
     }
 
     let seed = Math.abs(hash) + 12345;
     for (let r = 0; r < gridDim; r++) {
       for (let c = 0; c < gridDim; c++) {
-        // Skip Finder patterns and separators
         if (
           (r < 8 && c < 8) ||
           (r < 8 && c >= gridDim - 8) ||
@@ -85,23 +88,38 @@ export const QrCodeSvg: React.FC<QrCodeSvgProps> = ({
   const cellSize = 5;
   const totalDim = gridDim * cellSize;
 
+  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(value || 'CINEMASEAT')}&margin=4`;
+
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${totalDim} ${totalDim}`} className="rounded-xl shadow-inner">
-      <rect width={totalDim} height={totalDim} fill={bgColor} />
-      {matrix.map((row, r) =>
-        row.map((active, c) =>
-          active ? (
-            <rect
-              key={`${r}-${c}`}
-              x={c * cellSize}
-              y={r * cellSize}
-              width={cellSize}
-              height={cellSize}
-              fill={fgColor}
-            />
-          ) : null
-        )
+    <div className="flex items-center justify-center relative bg-white p-1 rounded-xl overflow-hidden shadow-md">
+      {!imgError ? (
+        <img
+          src={qrImageUrl}
+          alt={`QR Code for ${value}`}
+          width={size}
+          height={size}
+          className="rounded-lg object-contain transition-opacity duration-200"
+          onError={() => setImgError(true)}
+        />
+      ) : (
+        <svg width={size} height={size} viewBox={`0 0 ${totalDim} ${totalDim}`} className="rounded-lg">
+          <rect width={totalDim} height={totalDim} fill={bgColor} />
+          {matrix.map((row, r) =>
+            row.map((active, c) =>
+              active ? (
+                <rect
+                  key={`${r}-${c}`}
+                  x={c * cellSize}
+                  y={r * cellSize}
+                  width={cellSize}
+                  height={cellSize}
+                  fill={fgColor}
+                />
+              ) : null
+            )
+          )}
+        </svg>
       )}
-    </svg>
+    </div>
   );
 };

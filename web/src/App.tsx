@@ -136,18 +136,22 @@ export function App() {
 
   // Toggle seat selection (add/remove from selectedSeats)
   const handleToggleSeat = (seat: Seat) => {
-    if (activeHold) return; // Can't change selection while hold is active
+    const isMatch = (s: Seat) => 
+      Boolean(
+        (seat.id && (s.id === seat.id || s.seat_id === seat.id)) ||
+        (seat.seat_id && (s.seat_id === seat.seat_id || s.id === seat.seat_id)) ||
+        (seat.seat_code && (s.seat_code === seat.seat_code || s.label === seat.seat_code)) ||
+        (seat.label && (s.label === seat.label || s.seat_code === seat.label))
+      );
 
-    const seatId = seat.seat_id || seat.id || seat.seat_code || '';
-    const alreadySelected = selectedSeats.some(
-      s => (s.seat_id || s.id || s.seat_code) === seatId
-    );
-
-    if (alreadySelected) {
-      setSelectedSeats(prev => prev.filter(s => (s.seat_id || s.id || s.seat_code) !== seatId));
-    } else {
-      setSelectedSeats(prev => [...prev, seat]);
-    }
+    setSelectedSeats((prev) => {
+      const exists = prev.some(isMatch);
+      if (exists) {
+        return prev.filter((s) => !isMatch(s));
+      } else {
+        return [...prev, seat];
+      }
+    });
   };
 
   // Hold all selected seats atomically
