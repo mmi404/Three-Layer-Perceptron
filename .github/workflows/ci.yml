@@ -204,7 +204,18 @@ jobs:
           ssh -i deploy_key -o StrictHostKeyChecking=accept-new \
               -o ConnectTimeout=15 \
               "$DEPLOY_USER@$DEPLOY_HOST" \
-              'cd ~/apps/cinemaseat && ./deploy.sh'
+              '
+                mkdir -p ~/apps
+                if [ ! -d ~/apps/cinemaseat/.git ]; then
+                  git clone https://github.com/mmi404/Three-Layer-Perceptron.git ~/apps/cinemaseat
+                  cd ~/apps/cinemaseat
+                  bash infra/ec2-setup.sh https://github.com/mmi404/Three-Layer-Perceptron.git
+                else
+                  cd ~/apps/cinemaseat
+                  chmod +x deploy.sh
+                  ./deploy.sh
+                fi
+              '
 
       - name: Verify the public URL is serving this commit
         env:
