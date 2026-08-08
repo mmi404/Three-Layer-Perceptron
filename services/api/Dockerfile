@@ -31,6 +31,12 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
+# Stamped at build time and surfaced on /health, so you can always tell WHICH
+# commit is actually serving traffic. Twice during development a stale image
+# was mistaken for a fresh deploy; this makes that failure self-evident.
+ARG BUILD_SHA=dev
+ENV BUILD_SHA=$BUILD_SHA
+
 # tini reaps zombies and forwards SIGTERM — required for graceful shutdown.
 RUN apk add --no-cache tini
 

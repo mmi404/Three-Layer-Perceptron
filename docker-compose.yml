@@ -79,6 +79,8 @@ services:
     build:
       context: ./services/api
       target: runtime
+      args:
+        BUILD_SHA: ${BUILD_SHA:-dev}
     image: ${PROJECT_NAME:-cinemaseat}-app:latest
     restart: unless-stopped
     env_file: *env-file
@@ -117,6 +119,8 @@ services:
     build:
       context: ./services/api
       target: runtime
+      args:
+        BUILD_SHA: ${BUILD_SHA:-dev}
     image: ${PROJECT_NAME:-cinemaseat}-app:latest
     restart: unless-stopped
     command: ["node", "dist/worker.js"]
@@ -209,6 +213,8 @@ services:
     build:
       context: ./services/api
       target: runtime
+      args:
+        BUILD_SHA: ${BUILD_SHA:-dev}
     image: ${PROJECT_NAME:-cinemaseat}-app:latest
     command: ["node", "dist/db/migrate.js"]
     restart: "no"

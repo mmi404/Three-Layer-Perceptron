@@ -23,6 +23,9 @@ step "Pulling latest code"
 git pull --ff-only
 
 step "Building and starting the stack"
+# Stamp the commit into the image so /health reports exactly what is running.
+export BUILD_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+echo "  building $BUILD_SHA"
 $COMPOSE up -d --build --remove-orphans
 
 step "Waiting for services to report healthy"
@@ -43,6 +46,16 @@ done
 
 curl -fsS "http://127.0.0.1:${HTTP_PORT}/ready" | head -c 300; echo
 curl -fsS -o /dev/null -w "  frontend HTTP %{http_code}\n" "http://127.0.0.1:${HTTP_PORT}/"
+
+# Confirm the running code is the code we just built. A deploy that silently
+# served a cached image would otherwise look identical to a successful one.
+LIVE_SHA=$(curl -fsS "http://127.0.0.1:${HTTP_PORT}/health" \
+  | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')
+if [ "$LIVE_SHA" = "$BUILD_SHA" ]; then
+  echo "  version  OK ($LIVE_SHA)"
+else
+  fail "deployed version is '$LIVE_SHA' but we built '$BUILD_SHA' — stale image"
+fi
 
 step "Deployed"
 echo "  Local  : http://127.0.0.1:${HTTP_PORT}"

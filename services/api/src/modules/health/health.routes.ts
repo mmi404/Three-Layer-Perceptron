@@ -22,6 +22,8 @@ healthRouter.get('/health', (_req, res) => {
     // a loop shows this value rotating — which is how you PROVE load balancing
     // in the demo instead of just claiming it. Do not remove.
     instance: hostname(),
+    // Which commit is serving this request.
+    version: process.env.BUILD_SHA ?? 'dev',
     uptime: Math.floor(process.uptime()),
     timestamp: new Date().toISOString(),
   });
