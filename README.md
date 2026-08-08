@@ -10,7 +10,7 @@ Built for **Zero to Production — Phase 2**, IEEE Computer Society CUET Student
 
 ## Contents
 
-[What works](#what-works) · [Architecture](#architecture) · [How it never double-books](#how-it-never-double-books) · [Run it](#run-it) · [Judge's quick reference](#judges-quick-reference) · [API](#api) · [Testing the gateway's misbehaviour](#testing-the-gateways-misbehaviour) · [Proof](#proof-milestone-4) · [CI/CD](#cicd) · [Deployment](#deployment) · [What does not work](#what-does-not-work) · [Acknowledgements](#acknowledgements)
+[What works](#what-works) · [Screenshots](#screenshots) · [Architecture](#architecture) · [How it never double-books](#how-it-never-double-books) · [Run it](#run-it) · [Judge's quick reference](#judges-quick-reference) · [API](#api) · [Testing the gateway's misbehaviour](#testing-the-gateways-misbehaviour) · [Proof](#proof-milestone-4) · [CI/CD](#cicd) · [Deployment](#deployment) · [What does not work](#what-does-not-work) · [Acknowledgements](#acknowledgements)
 
 ---
 
@@ -32,6 +32,19 @@ Built for **Zero to Production — Phase 2**, IEEE Computer Society CUET Student
 | Nginx + Traefik reverse proxy, horizontally scalable API | ✅ bonus |
 | Rate limiting, input validation on every entry point | ✅ bonus |
 | AWS EC2 deployment with CI-gated CD | ✅ bonus |
+
+---
+
+## Screenshots
+
+| Feature | Screenshot | Notes |
+|---|---|---|
+| **Home** | ![Home](screenshots/01-home.png) | Landing page — hero banner for the featured movie plus a trending/quick-book grid. No login required. |
+| **Live seat map** | ![Seat map](screenshots/02-seat-map.png) | Seats colour-coded available / selected / held / booked, fetched live from `GET /api/v1/showtimes/:id/seats`. |
+| **Seat held by another buyer** | ![Live lock](screenshots/03-seat-live-lock.png) | Seat B11 shown locked mid-checkout by a different user — the map reflects real concurrent state, not a static mock. |
+| **Selecting seats to hold** | ![Seat selection](screenshots/04-seat-selection.png) | Two seats picked, running total shown live; "Hold Seats" calls `POST /api/v1/holds`, which atomically locks both or none. |
+| **Checkout — OTP verification** | ![Checkout OTP](screenshots/05-checkout-otp.png) | Hold confirmed under a `booking_ref`, amount locked in server-side, OTP verified before `/pay` is called. |
+| **Ticket receipt** | ![Receipt](screenshots/06-receipt.png) | Final confirmation with QR code and booking reference, shown once the booking reaches `CONFIRMED`. |
 
 ---
 
