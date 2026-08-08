@@ -329,7 +329,14 @@ VERIFICATION (from the seat map, not from our own counters)
   OVERSELL           : 0
 ```
 
-100 buyers, one seat, one burst. **Oversell: 0.** The p50 of ~1 s is the queue on a single row lock — 100 transactions serialising on one seat is exactly the intended behaviour, not a bottleneck.
+100 buyers, one seat, one burst. **Oversell: 0.**
+
+The p50 of ~1 s is the queue on a single row lock: 100 transactions serialising
+on one seat is exactly the intended behaviour, not a bottleneck. Note that the
+*latency* figures move a lot on a dev box — the same run has measured anywhere
+from 1.0 s to 4.9 s p50 depending on what else the machine was doing, which is
+precisely why the problem statement says not to load-test from the same host.
+The numbers that do **not** move, and the ones that matter, are `1 / 99 / 0`.
 
 ### Scenario B — the abandoned hold ✅
 
