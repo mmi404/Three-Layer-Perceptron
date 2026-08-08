@@ -123,7 +123,15 @@ jobs:
     runs-on: ubuntu-latest
     needs: [test, web-build]
     # `always()` so a skipped (not failed) upstream job does not block this.
-    if: always() && !contains(needs.*.result, 'failure')
+    # F15: a job's result is 'cancelled', not 'failure', when superseded by
+    # concurrency.cancel-in-progress (line 11) — which happens on every push
+    # that supersedes an in-flight run, i.e. routinely. Without excluding it
+    # explicitly, a cancelled `test` used to let `stack` (and therefore
+    # `deploy`) proceed as if CI had passed.
+    if: >-
+      always() &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
     steps:
       - uses: actions/checkout@v4
 
@@ -185,7 +193,12 @@ jobs:
     name: Deploy to AWS EC2
     runs-on: ubuntu-latest
     needs: [stack]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: >-
+      always() &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push' &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
     concurrency:
       group: production-deploy
       cancel-in-progress: false
@@ -198,6 +211,10 @@ jobs:
           DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER || 'ubuntu' }}
+          # F17: derived from the repo the workflow is actually running in,
+          # instead of a hardcoded URL that silently pointed at a different
+          # repository than whichever one this workflow lives in.
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
         run: |
           set -e
           printf '%s\n' "$DEPLOY_KEY" > deploy_key
@@ -210,9 +227,9 @@ jobs:
                 sudo chmod 666 /var/run/docker.sock 2>/dev/null || true
                 mkdir -p ~/apps
                 if [ ! -d ~/apps/cinemaseat/.git ]; then
-                  git clone https://github.com/mmi404/Three-Layer-Perceptron.git ~/apps/cinemaseat
+                  git clone '"$REPO_URL"' ~/apps/cinemaseat
                   cd ~/apps/cinemaseat
-                  bash infra/ec2-setup.sh https://github.com/mmi404/Three-Layer-Perceptron.git
+                  bash infra/ec2-setup.sh '"$REPO_URL"'
                 else
                   cd ~/apps/cinemaseat
                   git fetch origin main
