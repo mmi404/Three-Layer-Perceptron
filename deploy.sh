@@ -35,6 +35,8 @@ git fetch origin main --quiet 2>/dev/null || true
 git reset --hard origin/main --quiet 2>/dev/null || git pull --ff-only || true
 
 step "Building and starting the stack"
+# Free disk space: remove old images and build cache from previous deploys.
+$DOCKER_CMD system prune -af --volumes 2>/dev/null || true
 # Stamp the commit into the image so /health reports exactly what is running.
 export BUILD_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 echo "  building $BUILD_SHA"
