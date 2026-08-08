@@ -10,7 +10,6 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { rateLimit } from './middleware/rateLimit';
 import { healthRouter } from './modules/health/health.routes';
 import { metricsRouter, metricsMiddleware } from './modules/metrics/metrics.routes';
-import { itemsRouter } from './modules/items/items.routes';
 
 /**
  * App assembly. Middleware ORDER matters — it is top to bottom:
@@ -28,8 +27,11 @@ export function createApp() {
   app.use(helmet());
   app.use(
     cors({
-      origin: env.corsOrigins,       // allowlist, never "*"
-      credentials: true,
+      // "*" is a deliberate default for this event: judges hit the deployed URL
+      // from unknown origins and there is no authenticated session to protect.
+      // Set CORS_ORIGINS to a comma-separated allowlist for a real deployment.
+      origin: env.corsOrigins === '*' ? true : env.corsOrigins,
+      credentials: env.corsOrigins !== '*',
       maxAge: 86_400,
     }),
   );
@@ -52,9 +54,11 @@ export function createApp() {
   app.use(healthRouter);
   app.use(metricsRouter);
 
-  // Everything under /api is rate limited.
+  // Everything under /api is rate limited, with a high ceiling. Seat
+  // contention is resolved in Postgres, not by throttling — see rateLimit.ts.
   app.use('/api', rateLimit());
-  app.use('/api/v1/items', itemsRouter);
+
+  // Domain routers are mounted here as slices land.
 
   // ORDER IS LOAD-BEARING: 404 after all routes, error handler last of all.
   app.use(notFoundHandler);

@@ -1,78 +1,44 @@
 import { useEffect, useState } from 'react';
 import { api } from './api';
 
-type Item = {
-  id: string;
-  title: string;
-  description: string | null;
-  status: 'draft' | 'active' | 'archived';
-  created_at: string;
-};
-
-type ListResponse = { data: Item[]; pagination: { nextCursor: string | null } };
+type Health = { status: string; instance: string; uptime: number };
 
 /**
- * Placeholder UI. Replace with the real screens.
- *
- * Keep the three states below in whatever you build: LOADING (skeleton),
- * ERROR (with a retry affordance), EMPTY. On venue Wi-Fi these are the
- * difference between "it's slow" and "it's broken" during your demo.
+ * Placeholder shell. The booking flow (browse -> seat grid -> hold -> OTP ->
+ * pay -> confirm) lands in a later slice.
  */
 export function App() {
-  const [items, setItems] = useState<Item[] | null>(null);
+  const [health, setHealth] = useState<Health | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const load = () => {
-    setError(null);
-    setItems(null);
-    api<ListResponse>('/v1/items?limit=20')
-      .then((r) => setItems(r.data))
-      .catch((e) => setError(e instanceof Error ? e.message : 'Request failed'));
-  };
-
-  useEffect(load, []);
+  useEffect(() => {
+    fetch('/health')
+      .then((r) => r.json())
+      .then(setHealth)
+      .catch((e) => setError(e instanceof Error ? e.message : 'unreachable'));
+  }, []);
 
   return (
     <main>
       <header>
-        <h1>Zero to Production</h1>
-        <p className="sub">Starter kit — replace this with the real application.</p>
+        <h1>CinemaSeat</h1>
+        <p className="sub">Never sells the same seat twice.</p>
       </header>
 
-      {error && (
-        <div className="card error">
-          <p>Could not reach the API: {error}</p>
-          <button onClick={load}>Retry</button>
-        </div>
-      )}
-
-      {!error && items === null && (
-        <div className="card">
-          {/* Skeleton, not a spinner — perceived performance on slow links. */}
-          <div className="skeleton" />
-          <div className="skeleton short" />
-        </div>
-      )}
-
-      {items?.length === 0 && (
-        <div className="card">
-          <p>No items yet. Run the seed script to populate demo data.</p>
-        </div>
-      )}
-
-      {items && items.length > 0 && (
-        <ul className="list">
-          {items.map((item) => (
-            <li key={item.id} className="card">
-              <div className="row">
-                <strong>{item.title}</strong>
-                <span className={`badge ${item.status}`}>{item.status}</span>
-              </div>
-              {item.description && <p className="sub">{item.description}</p>}
-            </li>
-          ))}
-        </ul>
-      )}
+      <div className="card">
+        {error && <p>API unreachable: {error}</p>}
+        {!error && !health && <div className="skeleton" />}
+        {health && (
+          <p className="sub">
+            API <span className="badge active">{health.status}</span> · instance{' '}
+            <code>{health.instance}</code>
+          </p>
+        )}
+      </div>
     </main>
   );
 }
+
+// Keep the typed client referenced so the module is not tree-shaken away
+// before the booking flow lands.
+export const _client = api;

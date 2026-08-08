@@ -64,6 +64,10 @@ export function rateLimit(opts?: {
   };
 }
 
-/** Tighter limit for login/signup — the endpoints bots actually hammer. */
-export const authRateLimit = (): RequestHandler =>
-  rateLimit({ max: env.AUTH_RATE_LIMIT_MAX, windowMs: 15 * 60_000, keyPrefix: 'rl:auth' });
+/**
+ * Tight limit for OTP send/verify — the endpoints bots actually hammer, and
+ * the only ones where throttling does not interfere with seat contention.
+ * Keyed by phone number where available (see the route), not just IP.
+ */
+export const otpRateLimit = (): RequestHandler =>
+  rateLimit({ max: env.OTP_RATE_LIMIT_MAX, windowMs: 15 * 60_000, keyPrefix: 'rl:otp' });
