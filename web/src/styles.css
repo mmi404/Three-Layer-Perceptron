@@ -1,171 +1,1775 @@
+/* ==========================================================================
+   CinemaSeat — Ultra-Luxury Cinema & IMDb Showcase Design System
+   Inspired by Cinepolis Luxury Cinemas, IMAX, and IMDb Top-Tier Platforms
+   ========================================================================== */
+
 :root {
-  --bg: #0b1020;
-  --panel: #141a2e;
-  --border: #26304d;
-  --text: #e8ecf7;
-  --muted: #97a3c0;
-  --accent: #6ea8fe;
-  --ok: #7ee2a8;
-  --warn: #ffb86b;
-  --bad: #ff8095;
+  /* Cinematic Space Spectrum */
+  --bg-deep: #050711;
+  --bg-surface: #0a0e1c;
+  --bg-card: #10172b;
+  --bg-card-hover: #16203a;
+  --bg-card-glass: rgba(16, 23, 43, 0.78);
+  --bg-modal: rgba(5, 7, 17, 0.92);
+
+  /* Accents & Cinema Neon */
+  --accent-cyan: #38bdf8;
+  --accent-blue: #60a5fa;
+  --accent-gold: #f59e0b;
+  --accent-amber: #fbbf24;
+  --accent-imdb: #f5c518;
+  --accent-tomato: #fa320a;
+  --accent-popcorn: #ffd700;
+  --accent-purple: #c084fc;
+  --accent-emerald: #10b981;
+  --accent-crimson: #f43f5e;
+
+  /* Cinema Seat Color Coding */
+  --seat-available: #1e293b;
+  --seat-available-border: #334155;
+  --seat-available-hover: #0284c7;
+  --seat-vip-border: #a855f7;
+  --seat-selected: #38bdf8;
+  --seat-held: #3b2810;
+  --seat-held-border: #f59e0b;
+  --seat-booked: #1c1917;
+  --seat-booked-border: #44403c;
+  --seat-booked-text: #78716c;
+
+  /* Typography */
+  --text-pure: #ffffff;
+  --text-main: #f1f5f9;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
+
+  /* Borders & Glass */
+  --border-glass: rgba(255, 255, 255, 0.09);
+  --border-card: rgba(56, 189, 248, 0.16);
+  --border-active: rgba(56, 189, 248, 0.65);
+  --border-gold: rgba(245, 158, 11, 0.45);
+
+  /* Shadows & Ambient Glows */
+  --shadow-sm: 0 4px 14px rgba(0, 0, 0, 0.45);
+  --shadow-md: 0 8px 30px rgba(0, 0, 0, 0.65);
+  --shadow-lg: 0 18px 50px rgba(0, 0, 0, 0.85);
+  --shadow-cyan-glow: 0 0 35px rgba(56, 189, 248, 0.35);
+  --shadow-gold-glow: 0 0 35px rgba(245, 158, 11, 0.35);
+  --shadow-imdb: 0 0 25px rgba(245, 197, 24, 0.3);
+
+  /* Radii */
+  --r-sm: 8px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-xl: 28px;
+  --r-full: 9999px;
 }
 
-* { box-sizing: border-box; }
+/* Base Setup */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 
 body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font: 15px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background-color: var(--bg-deep);
+  color: var(--text-main);
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  min-height: 100vh;
+  overflow-x: hidden;
+  background-image: 
+    radial-gradient(ellipse 90% 50% at 50% -20%, rgba(56, 189, 248, 0.16), transparent 75%),
+    radial-gradient(circle 900px at 95% 75%, rgba(99, 102, 241, 0.09), transparent 70%),
+    radial-gradient(circle 700px at 5% 45%, rgba(245, 158, 11, 0.07), transparent 60%);
+  background-attachment: fixed;
 }
 
-main { max-width: 780px; margin: 0 auto; padding: 40px 20px 80px; }
-
-h1 { font-size: 26px; margin: 0 0 2px; letter-spacing: -0.02em; }
-h2 { font-size: 18px; margin: 28px 0 8px; }
-.sub { color: var(--muted); margin: 4px 0 0; font-size: 14px; }
-.sub.urgent { color: var(--warn); font-weight: 600; }
-
-.card {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 16px;
-  margin-top: 12px;
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Outfit', sans-serif;
+  color: var(--text-pure);
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
-.card.error { border-color: #6b2b3a; }
-.card.ok { border-color: #2c5a41; }
 
-.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+code, pre, .mono {
+  font-family: 'JetBrains Mono', monospace;
+}
 
-pre {
-  background: #0d1324;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px 10px;
+.app-container {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 24px 100px;
+}
+
+/* ==========================================================================
+   Header, Brand & Real-Time Telemetry Bar
+   ========================================================================== */
+
+.navbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 0;
+  margin-bottom: 28px;
+  border-bottom: 1px solid var(--border-glass);
+  position: relative;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.brand-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  text-decoration: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.brand-icon-box {
+  width: 50px;
+  height: 50px;
+  border-radius: var(--r-md);
+  background: linear-gradient(135deg, #0284c7 0%, #6366f1 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-cyan-glow);
+  color: #fff;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.brand-wrapper:hover .brand-icon-box {
+  transform: scale(1.06) rotate(-3deg);
+}
+
+.brand-name {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  background: linear-gradient(90deg, #ffffff 40%, var(--accent-cyan));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  line-height: 1.1;
+}
+
+.brand-subtitle {
   font-size: 12px;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.telemetry-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-card-glass);
+  border: 1px solid var(--border-glass);
+  padding: 8px 16px;
+  border-radius: var(--r-full);
+  font-size: 13px;
+  color: var(--text-muted);
+  backdrop-filter: blur(12px);
+}
+
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-emerald);
+  box-shadow: 0 0 10px var(--accent-emerald);
+  animation: pulse-ring 2s infinite ease-out;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+/* Stepper Progress Bar */
+.stepper-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 36px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--r-lg);
+  padding: 14px 24px;
+  backdrop-filter: blur(16px);
   overflow-x: auto;
-  color: var(--muted);
+  box-shadow: var(--shadow-sm);
+}
+
+.step-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.step-item.active {
+  color: var(--accent-cyan);
+}
+
+.step-item.completed {
+  color: var(--accent-emerald);
+}
+
+.step-num {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  border: 1px solid var(--border-glass);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  transition: all 0.2s ease;
+}
+
+.step-item.active .step-num {
+  background: var(--accent-cyan);
+  color: #050711;
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.6);
+}
+
+.step-item.completed .step-num {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: var(--accent-emerald);
+  color: var(--accent-emerald);
+}
+
+.step-divider {
+  flex: 1;
+  height: 2px;
+  background: var(--border-glass);
+  margin: 0 16px;
+  min-width: 24px;
+}
+
+/* ==========================================================================
+   Date Selector Ribbon (Cinepolis Style)
+   ========================================================================== */
+
+.date-ribbon {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 28px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.date-tab-btn {
+  background: var(--bg-card-glass);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--r-md);
+  padding: 10px 18px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 84px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  outline: none;
+}
+
+.date-tab-btn:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-active);
+  color: var(--text-pure);
+}
+
+.date-tab-btn.active {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(99, 102, 241, 0.2));
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.25);
+}
+
+.date-day-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.date-num-label {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-pure);
+}
+
+.date-tab-btn.active .date-num-label {
+  color: var(--accent-cyan);
+}
+
+/* ==========================================================================
+   Hero Featured Movie Showcase (Spider-Man Premiere)
+   ========================================================================== */
+
+.premiere-hero {
+  position: relative;
+  border-radius: var(--r-xl);
+  overflow: hidden;
+  background: linear-gradient(135deg, #190a29 0%, #0c1833 55%, #071024 100%);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  box-shadow: var(--shadow-lg), 0 0 40px rgba(245, 158, 11, 0.15);
+  margin-bottom: 44px;
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  min-height: 340px;
+}
+
+.hero-content {
+  padding: 44px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  z-index: 2;
+}
+
+.premiere-badge {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(90deg, #d97706, #b45309);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 6px 14px;
+  border-radius: var(--r-full);
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-gold-glow);
+}
+
+.hero-title {
+  font-size: 38px;
+  line-height: 1.12;
+  margin-bottom: 12px;
+  background: linear-gradient(90deg, #ffffff 50%, #fed7aa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.hero-desc {
+  color: var(--text-muted);
+  font-size: 15px;
+  max-width: 540px;
+  margin-bottom: 22px;
+  line-height: 1.6;
+}
+
+.ratings-badge-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+}
+
+.imdb-chip {
+  background: #f5c518;
+  color: #000;
+  font-weight: 800;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tomato-chip {
+  background: rgba(250, 50, 10, 0.15);
+  border: 1px solid rgba(250, 50, 10, 0.4);
+  color: #ff6b4a;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 4px;
+}
+
+.audience-chip {
+  background: rgba(255, 215, 0, 0.15);
+  border: 1px solid rgba(255, 215, 0, 0.4);
+  color: #ffd700;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 4px;
+}
+
+.hero-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.format-badge {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  padding: 6px 14px;
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+  backdrop-filter: blur(8px);
+}
+
+.format-badge.gold {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: var(--accent-gold);
+  color: var(--accent-amber);
+}
+
+.hero-visual-side {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: radial-gradient(circle at center, rgba(192, 132, 252, 0.2), transparent 70%);
+}
+
+.hero-artwork {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, rgba(220, 38, 38, 0.3) 0%, rgba(30, 58, 138, 0.5) 100%);
+  padding: 30px;
+  text-align: center;
+  position: relative;
+}
+
+.spider-web-mesh {
+  position: absolute;
+  inset: 0;
+  background-image: 
+    radial-gradient(rgba(255, 255, 255, 0.1) 1.5px, transparent 1.5px),
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 20px 20px, 40px 40px;
+  opacity: 0.7;
+}
+
+/* ==========================================================================
+   Movie Filter Tabs & Showcase Grid
+   ========================================================================== */
+
+.filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.filter-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-glass);
+  padding: 6px;
+  border-radius: var(--r-md);
+}
+
+.filter-tab {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 8px 18px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.filter-tab.active {
+  background: var(--bg-card);
+  color: var(--accent-cyan);
+  box-shadow: var(--shadow-sm);
+}
+
+.search-box {
+  position: relative;
+  min-width: 260px;
+}
+
+.search-input {
+  width: 100%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--r-md);
+  padding: 10px 16px 10px 38px;
+  color: var(--text-pure);
+  font-size: 13px;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.search-input:focus {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15);
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
+.movie-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 32px;
+  margin-bottom: 56px;
+}
+
+.movie-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  box-shadow: var(--shadow-sm);
+}
+
+.movie-card:hover {
+  transform: translateY(-6px);
+  border-color: var(--border-active);
+  box-shadow: var(--shadow-lg), var(--shadow-cyan-glow);
+}
+
+.movie-card.featured {
+  border-color: var(--border-gold);
+}
+
+.movie-card.featured:hover {
+  box-shadow: var(--shadow-lg), var(--shadow-gold-glow);
+}
+
+.movie-poster-banner {
+  height: 220px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 18px;
+  overflow: hidden;
+  background-size: cover;
+  background-position: center;
+}
+
+.movie-poster-banner.spiderman {
+  background: linear-gradient(135deg, #450a0a 0%, #1e1b4b 60%, #0b1226 100%);
+}
+
+.movie-poster-banner.dune {
+  background-image: linear-gradient(to top, rgba(16, 23, 43, 0.95), rgba(16, 23, 43, 0.2)), url('/dune_poster.png');
+}
+
+.movie-poster-banner.harbour {
+  background-image: linear-gradient(to top, rgba(16, 23, 43, 0.95), rgba(16, 23, 43, 0.2)), url('/harbour_poster.png');
+}
+
+.banner-ambient-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, var(--bg-card) 0%, rgba(16, 23, 43, 0.4) 60%, transparent 100%);
+  z-index: 1;
+}
+
+.banner-top-row {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.age-badge {
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 4px 10px;
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text-pure);
+}
+
+.trailer-preview-btn {
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  border-radius: var(--r-full);
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  z-index: 2;
+}
+
+.trailer-preview-btn:hover {
+  background: var(--accent-cyan);
+  color: #000;
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.5);
+}
+
+.movie-card-body {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.movie-card-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: var(--text-pure);
+}
+
+.movie-meta-chips {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.movie-ratings-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.showtimes-section-title {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.showtimes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+  margin-top: auto;
+}
+
+.showtime-card-btn {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--r-md);
+  padding: 12px 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.showtime-card-btn:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--accent-cyan);
+  transform: translateY(-3px);
+  box-shadow: 0 6px 18px rgba(56, 189, 248, 0.25);
+}
+
+.showtime-time-label {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text-pure);
+}
+
+.showtime-hall-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.showtime-price-tag {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+}
+
+/* ==========================================================================
+   Trailer & Movie Details Modal (IMDb Style)
+   ========================================================================== */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-modal);
+  backdrop-filter: blur(16px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  padding: 24px;
+}
+
+.modal-dialog {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--r-xl);
+  max-width: 680px;
+  width: 100%;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg), var(--shadow-cyan-glow);
+  position: relative;
+}
+
+.modal-header-banner {
+  height: 220px;
+  background: linear-gradient(135deg, #1e1b4b, #0f172a);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-close-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  z-index: 10;
+}
+
+.modal-body-content {
+  padding: 28px;
+}
+
+.modal-cast-list {
+  display: flex;
+  gap: 12px;
+  margin: 16px 0;
+  flex-wrap: wrap;
+}
+
+.cast-tag {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-glass);
+  padding: 4px 12px;
+  border-radius: var(--r-full);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ==========================================================================
+   Auditorium Mode & 3D Curved Projector Screen
+   ========================================================================== */
+
+.seatpicker-container {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.auditorium-nav-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.auditorium-header-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--r-lg);
+  padding: 24px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.auditorium-title {
+  font-size: 26px;
+  margin-bottom: 6px;
+}
+
+.auditorium-subtitle-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  font-size: 14px;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+
+.status-badge-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.status-counter-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--r-full);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.status-counter-badge.available {
+  background: rgba(16, 185, 129, 0.12);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.status-counter-badge.held {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.status-counter-badge.booked {
+  background: rgba(244, 63, 94, 0.12);
+  color: #fb7185;
+  border: 1px solid rgba(244, 63, 94, 0.3);
+}
+
+/* 3D Soundstage Screen & Projector Light */
+.auditorium-soundstage {
+  background: radial-gradient(ellipse at 50% -10%, #152244 0%, var(--bg-surface) 75%);
+  border: 1px solid var(--border-card);
+  border-radius: var(--r-xl);
+  padding: 44px 28px 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+}
+
+.screen-rig {
+  width: 84%;
+  max-width: 700px;
+  margin-bottom: 40px;
+  text-align: center;
+  position: relative;
+}
+
+.screen-curved-beam {
+  height: 16px;
+  border-top: 5px solid #38bdf8;
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  box-shadow: 
+    0 0 45px rgba(56, 189, 248, 0.75),
+    0 15px 50px rgba(56, 189, 248, 0.35);
+  margin-bottom: 14px;
+}
+
+.screen-tagline {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.4em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.tier-separator-ribbon {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent-purple);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 16px;
+}
+
+.tier-separator-ribbon::before, .tier-separator-ribbon::after {
+  content: '';
+  height: 1px;
+  width: 48px;
+  background: rgba(192, 132, 252, 0.4);
+}
+
+/* Seat Grid */
+.seat-matrix {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 36px;
+}
+
+.seat-row-strip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.row-letter-badge {
+  width: 28px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text-dim);
+}
+
+.row-seats-group {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.seat-capsule {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--seat-available-border);
+  background: var(--seat-available);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.16s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  outline: none;
+}
+
+.seat-capsule.vip {
+  border-color: var(--seat-vip-border);
+}
+
+.seat-capsule.available:hover {
+  background: var(--seat-available-hover);
+  border-color: var(--accent-cyan);
+  color: #fff;
+  transform: scale(1.18);
+  box-shadow: 0 4px 14px rgba(56, 189, 248, 0.35);
+  z-index: 10;
+}
+
+.seat-capsule.picked {
+  background: var(--accent-cyan);
+  border-color: var(--accent-cyan);
+  color: #050811;
+  font-weight: 800;
+  transform: scale(1.12);
+  box-shadow: 0 0 18px rgba(56, 189, 248, 0.75);
+  z-index: 5;
+}
+
+.seat-capsule.held {
+  background: #3b2810;
+  border-color: var(--seat-held-border);
+  color: var(--accent-amber);
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+
+.seat-capsule.booked {
+  background: var(--seat-booked);
+  border-color: var(--seat-booked-border);
+  color: var(--seat-booked-text);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.seat-legend-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding: 16px 28px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--r-full);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.legend-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  border: 1px solid var(--border-glass);
+}
+
+.legend-swatch.standard { background: var(--seat-available); }
+.legend-swatch.vip { background: var(--seat-available); border-color: var(--seat-vip-border); }
+.legend-swatch.selected { background: var(--accent-cyan); box-shadow: 0 0 8px rgba(56, 189, 248, 0.6); }
+.legend-swatch.held { background: #3b2810; border-color: var(--seat-held-border); }
+.legend-swatch.sold { background: var(--seat-booked); border-color: var(--seat-booked-border); }
+
+/* ==========================================================================
+   Cinepolis Gourmet Concessions & Dining Add-On
+   ========================================================================== */
+
+.concessions-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--r-lg);
+  padding: 24px 28px;
+}
+
+.concessions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.concession-item-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--r-md);
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  transition: all 0.2s ease;
+}
+
+.concession-item-card:hover {
+  border-color: var(--accent-gold);
+}
+
+.concession-item-card.selected {
+  border-color: var(--accent-gold);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.concession-img-box {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--r-sm);
+  background: var(--bg-card);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+}
+
+/* Sticky Selection & Hold Action Tray */
+.selection-action-tray {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--r-lg);
+  padding: 26px 32px;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr auto;
+  gap: 28px;
+  align-items: center;
+  box-shadow: var(--shadow-md);
+}
+
+.form-field-unit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field-caption {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.styled-text-input {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--r-md);
+  padding: 12px 16px;
+  color: var(--text-pure);
+  font-size: 15px;
+  font-family: inherit;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.styled-text-input:focus {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.18);
+}
+
+.subtotal-display-unit {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.subtotal-amount {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--text-pure);
+  line-height: 1.1;
+}
+
+.subtotal-vat-text {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #0284c7 0%, #38bdf8 100%);
+  color: #040e1c;
+  border: none;
+  border-radius: var(--r-md);
+  padding: 16px 32px;
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 6px 22px rgba(56, 189, 248, 0.45);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  white-space: nowrap;
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px rgba(56, 189, 248, 0.6);
+}
+
+.btn-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border-glass);
+  color: var(--text-muted);
+  padding: 10px 20px;
+  border-radius: var(--r-md);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.btn-ghost:hover {
+  background: var(--bg-card);
+  border-color: var(--border-active);
+  color: var(--text-pure);
+}
+
+/* ==========================================================================
+   Checkout, OTP, Gateway Chaos & Boarding Pass
+   ========================================================================== */
+
+.checkout-grid-layout {
+  display: grid;
+  grid-template-columns: 1fr 400px;
+  gap: 36px;
+  align-items: flex-start;
+}
+
+.checkout-flow-column {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.checkout-sidebar-column {
+  position: sticky;
+  top: 28px;
+}
+
+.hold-timer-strip {
+  background: linear-gradient(135deg, #1e1b4b 0%, #172554 100%);
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  border-radius: var(--r-lg);
+  padding: 22px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: var(--shadow-md);
+}
+
+.hold-timer-strip.urgent {
+  background: linear-gradient(135deg, #4c0519 0%, #3f121d 100%);
+  border-color: rgba(244, 63, 94, 0.6);
+  box-shadow: 0 0 30px rgba(244, 63, 94, 0.4);
+  animation: timer-flash 1.2s infinite alternate;
+}
+
+@keyframes timer-flash {
+  from { border-color: rgba(244, 63, 94, 0.4); }
+  to { border-color: rgba(244, 63, 94, 1); }
+}
+
+.timer-left-meta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.timer-bell-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+}
+
+.timer-clock-digits {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--text-pure);
+}
+
+.checkout-card-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--r-lg);
+  padding: 28px;
+  box-shadow: var(--shadow-sm);
+}
+
+.step-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.step-title-text {
+  font-size: 19px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .badge {
   font-size: 11px;
-  padding: 2px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  color: var(--muted);
+  padding: 4px 12px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--border-glass);
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-}
-.badge.premiere { color: var(--warn); border-color: #6b4a22; }
-.badge.CONFIRMED { color: var(--ok); border-color: #2c5a41; }
-.badge.HELD, .badge.PENDING_PAYMENT { color: var(--accent); border-color: #2f4670; }
-.badge.FAILED, .badge.EXPIRED { color: var(--bad); border-color: #6b2b3a; }
-
-button {
-  background: var(--accent);
-  color: #0b1020;
-  border: 0;
-  border-radius: 8px;
-  padding: 8px 16px;
-  font-weight: 600;
-  font-size: 14px;
-  cursor: pointer;
-}
-button:disabled { opacity: 0.45; cursor: not-allowed; }
-button.link {
-  background: none; color: var(--muted); padding: 0; font-weight: 400;
-  text-decoration: underline;
+  letter-spacing: 0.06em;
 }
 
-input {
-  background: #0d1324;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 10px;
-  color: var(--text);
-  font: inherit;
-  min-width: 140px;
+.badge.HELD, .badge.PENDING_PAYMENT {
+  background: rgba(56, 189, 248, 0.15);
+  color: var(--accent-cyan);
+  border-color: rgba(56, 189, 248, 0.4);
 }
-label { display: block; color: var(--muted); font-size: 13px; margin-bottom: 12px; }
-label input { display: block; margin-top: 4px; width: 100%; }
 
-.times { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-.time {
-  background: #0d1324;
-  color: var(--text);
-  border: 1px solid var(--border);
-  font-weight: 500;
-  text-align: left;
+.badge.CONFIRMED {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--accent-emerald);
+  border-color: rgba(16, 185, 129, 0.4);
 }
-.time:hover { border-color: var(--accent); }
 
-/* --- seat grid ------------------------------------------------------------- */
+.badge.FAILED, .badge.EXPIRED {
+  background: rgba(244, 63, 94, 0.15);
+  color: var(--accent-crimson);
+  border-color: rgba(244, 63, 94, 0.4);
+}
 
-.screen {
-  margin: 20px auto 18px;
-  max-width: 70%;
-  text-align: center;
+.otp-helper-container {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--r-md);
+  padding: 16px 20px;
+  font-size: 13px;
+  color: #fde68a;
+  margin-bottom: 20px;
+}
+
+.terminal-command-box {
+  background: #060913;
+  border: 1px solid var(--border-glass);
+  border-radius: var(--r-sm);
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--accent-cyan);
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.judge-chaos-sandbox {
+  background: rgba(11, 17, 32, 0.9);
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  border-radius: var(--r-md);
+  padding: 18px;
+  margin: 24px 0;
+}
+
+.chaos-title-caption {
   font-size: 11px;
-  letter-spacing: 0.3em;
-  color: var(--muted);
-  border-bottom: 2px solid var(--border);
-  padding-bottom: 6px;
-}
-
-.grid { display: flex; flex-direction: column; gap: 6px; overflow-x: auto; }
-.seatrow { display: flex; align-items: center; gap: 6px; }
-.rowlabel { width: 16px; color: var(--muted); font-size: 12px; flex: none; }
-
-.seat {
-  width: 30px; height: 30px;
-  flex: none;
-  padding: 0;
-  font-size: 11px;
-  font-weight: 500;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: #1b2237;
-  color: var(--muted);
-}
-.seat.available { background: #1b2237; color: var(--text); }
-.seat.available:hover { border-color: var(--accent); }
-.seat.picked { background: var(--accent); color: #0b1020; border-color: var(--accent); }
-.seat.held { background: #3a2e1c; color: var(--warn); }
-.seat.booked { background: #2a1a20; color: #6b4551; }
-
-.legend {
-  display: flex; gap: 16px; flex-wrap: wrap;
-  margin-top: 14px; font-size: 12px; color: var(--muted);
-}
-.legend span { display: flex; align-items: center; gap: 6px; }
-.swatch {
-  width: 12px; height: 12px; border-radius: 3px; display: inline-block;
-  border: 1px solid var(--border);
-}
-.swatch.available { background: #1b2237; }
-.swatch.picked { background: var(--accent); }
-.swatch.held { background: #3a2e1c; }
-.swatch.booked { background: #2a1a20; }
-
-/* --- skeleton -------------------------------------------------------------- */
-
-.skeleton {
-  height: 14px;
-  border-radius: 6px;
-  background: linear-gradient(90deg, #1b2237 25%, #232c46 50%, #1b2237 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.4s infinite;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-amber);
   margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
-.skeleton.short { width: 60%; margin-bottom: 0; }
 
-@keyframes shimmer {
+.chaos-pill-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.chaos-pill-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--r-sm);
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.chaos-pill-btn.active {
+  background: rgba(56, 189, 248, 0.25);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.3);
+}
+
+.async-radar-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.film-reel-spinner {
+  width: 72px;
+  height: 72px;
+  border: 5px solid var(--border-glass);
+  border-top-color: var(--accent-cyan);
+  border-right-color: var(--accent-gold);
+  border-radius: 50%;
+  animation: reel-spin 1.2s infinite linear;
+  margin-bottom: 24px;
+  box-shadow: 0 0 25px rgba(56, 189, 248, 0.3);
+}
+
+@keyframes reel-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Digital Cinema Boarding Pass Ticket */
+.digital-ticket-pass {
+  background: linear-gradient(135deg, #131d36 0%, #0d152a 100%);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: var(--r-xl);
+  overflow: hidden;
+  box-shadow: var(--shadow-lg), var(--shadow-cyan-glow);
+  margin: 20px 0;
+  position: relative;
+}
+
+.ticket-header-strip {
+  background: linear-gradient(90deg, #0284c7 0%, #4338ca 100%);
+  padding: 24px 32px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ticket-content-body {
+  padding: 32px;
+}
+
+.perforation-divider {
+  height: 24px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 -32px;
+}
+
+.perforation-divider::before, .perforation-divider::after {
+  content: '';
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg-deep);
+  position: absolute;
+}
+
+.perforation-divider::before { left: -14px; }
+.perforation-divider::after { right: -14px; }
+
+.perforation-dashed-line {
+  width: 100%;
+  border-bottom: 2px dashed rgba(255, 255, 255, 0.16);
+}
+
+.ticket-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24px;
+  margin: 24px 0;
+}
+
+.ticket-label-text {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+.ticket-val-text {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--text-pure);
+}
+
+.qr-matrix-card {
+  background: #ffffff;
+  border-radius: var(--r-md);
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-md);
+}
+
+.alert-box {
+  padding: 18px 24px;
+  border-radius: var(--r-md);
+  margin-bottom: 24px;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  font-size: 14px;
+}
+
+.alert-box.error {
+  background: rgba(244, 63, 94, 0.12);
+  border: 1px solid rgba(244, 63, 94, 0.45);
+  color: #fecdd3;
+}
+
+.alert-box.success {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  color: #a7f3d0;
+}
+
+.skeleton-card {
+  background: var(--bg-card);
+  border-radius: var(--r-lg);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+  background-size: 200% 100%;
+  animation: shimmer-anim 1.4s infinite;
+  border-radius: var(--r-sm);
+}
+
+@keyframes shimmer-anim {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .skeleton { animation: none; }
+@media (max-width: 990px) {
+  .premiere-hero {
+    grid-template-columns: 1fr;
+  }
+  .hero-visual-side {
+    display: none;
+  }
+  .checkout-grid-layout {
+    grid-template-columns: 1fr;
+  }
+  .selection-action-tray {
+    grid-template-columns: 1fr;
+  }
 }
+
+@media (max-width: 640px) {
+  .app-container {
+    padding: 0 16px 80px;
+  }
+  .seat-capsule {
+    width: 28px;
+    height: 28px;
+    font-size: 10px;
+  }
+  .row-seats-group {
+    gap: 5px;
+  }
+  .hero-title {
+    font-size: 28px;
+  }
+  .hero-content {
+    padding: 28px 20px;
+  }
+}
+
+/* ==========================================================================
+   Printable E-Ticket PDF Document & Fullscreen Modal
+   ========================================================================== */
+
+.ticket-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 7, 18, 0.94);
+  backdrop-filter: blur(20px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.ticket-modal-card {
+  max-width: 620px;
+  width: 100%;
+  background: linear-gradient(135deg, #0e162c 0%, #080d1e 100%);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  border-radius: var(--r-xl);
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.9), 0 0 45px rgba(56, 189, 248, 0.35);
+  overflow: hidden;
+  position: relative;
+  animation: modal-pop 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modal-pop {
+  from { transform: scale(0.92); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.ticket-pdf-header {
+  background: linear-gradient(90deg, #0284c7 0%, #4338ca 100%);
+  padding: 24px 30px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ticket-pdf-body {
+  padding: 32px 30px;
+}
+
+.ticket-attendee-strip {
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: var(--r-md);
+  padding: 14px 18px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.attendee-name-input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px dashed var(--accent-cyan);
+  color: var(--text-pure);
+  font-size: 16px;
+  font-weight: 800;
+  outline: none;
+  width: 220px;
+}
+
+.cinema-barcode-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 48px;
+  margin: 20px 0 10px;
+  padding: 8px 16px;
+  background: #ffffff;
+  border-radius: var(--r-sm);
+}
+
+.barcode-bar {
+  background: #060913;
+  height: 100%;
+}
+
+.ticket-actions-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-glass);
+}
+
+/* @media print — Format Official Cinema E-Ticket PDF directly to physical printer / PDF export */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    padding: 0 !important;
+    background-image: none !important;
+  }
+
+  .navbar,
+  .stepper-nav,
+  .date-ribbon,
+  .premiere-hero,
+  .filter-bar,
+  .movie-grid,
+  .selection-action-tray,
+  .hold-timer-strip,
+  .otp-helper-container,
+  .judge-chaos-sandbox,
+  .ticket-actions-bar,
+  .btn-ghost,
+  .btn-primary,
+  .modal-close-btn,
+  .checkout-sidebar-column {
+    display: none !important;
+  }
+
+  .ticket-modal-backdrop {
+    position: static !important;
+    background: transparent !important;
+    padding: 0 !important;
+  }
+
+  .ticket-modal-card,
+  .digital-ticket-pass {
+    background: #ffffff !important;
+    color: #000000 !important;
+    border: 2px solid #000000 !important;
+    box-shadow: none !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    page-break-inside: avoid;
+  }
+
+  .ticket-header-strip,
+  .ticket-pdf-header {
+    background: #000000 !important;
+    color: #ffffff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .ticket-val-text,
+  .ticket-label-text,
+  .attendee-name-input {
+    color: #000000 !important;
+  }
+
+  .qr-matrix-card {
+    border: 1px solid #000000 !important;
+  }
+}
+
