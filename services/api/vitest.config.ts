@@ -6,19 +6,27 @@ export default defineConfig({
     include: ['src/**/*.test.ts'],
 
     /**
-     * Pure unit tests (src/modules/ * /*.rules.ts) import no infrastructure and
-     * need none of this. These defaults exist so that INTEGRATION tests — which
-     * do import config/env.ts through db/redis — can boot without a .env file.
-     * CI overrides them with real service-container URLs.
+     * Integration tests run against a REAL Postgres — the correctness argument
+     * rests on row locks and guarded UPDATEs, so mocking the database would
+     * test nothing. CI supplies a service container; locally, compose exposes
+     * Postgres on 127.0.0.1:55432.
      */
     env: {
       NODE_ENV: 'test',
-      DATABASE_URL: process.env.DATABASE_URL ?? 'postgres://app:app@localhost:5432/appdb_test',
-      REDIS_URL: process.env.REDIS_URL ?? 'redis://localhost:6379',
-      JWT_SECRET: process.env.JWT_SECRET ?? 'test_secret_that_is_at_least_32_characters_long',
-      CORS_ORIGINS: 'http://localhost:5173',
+      DATABASE_URL:
+        process.env.DATABASE_URL ?? 'postgres://app:app@127.0.0.1:55432/cinemaseat',
+      REDIS_URL: process.env.REDIS_URL ?? 'redis://127.0.0.1:6379',
       LOG_LEVEL: 'error',
+      HOLD_TTL_SECONDS: '120',
     },
+
+    /**
+     * The concurrency suite deliberately contends on the same rows. Running
+     * suites in parallel against one database would make the oversell
+     * assertions flaky for reasons unrelated to the code under test.
+     */
+    fileParallelism: false,
+    testTimeout: 30_000,
 
     coverage: {
       reporter: ['text', 'html'],

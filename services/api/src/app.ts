@@ -10,6 +10,8 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { rateLimit } from './middleware/rateLimit';
 import { healthRouter } from './modules/health/health.routes';
 import { metricsRouter, metricsMiddleware } from './modules/metrics/metrics.routes';
+import { catalogRouter } from './modules/catalog/catalog.routes';
+import { bookingRouter } from './modules/booking/booking.routes';
 
 /**
  * App assembly. Middleware ORDER matters — it is top to bottom:
@@ -58,7 +60,8 @@ export function createApp() {
   // contention is resolved in Postgres, not by throttling — see rateLimit.ts.
   app.use('/api', rateLimit());
 
-  // Domain routers are mounted here as slices land.
+  app.use('/api/v1', catalogRouter);
+  app.use('/api/v1', bookingRouter);
 
   // ORDER IS LOAD-BEARING: 404 after all routes, error handler last of all.
   app.use(notFoundHandler);

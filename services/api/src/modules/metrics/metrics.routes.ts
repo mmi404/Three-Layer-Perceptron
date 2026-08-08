@@ -27,6 +27,35 @@ const httpTotal = new client.Counter({
   registers: [registry],
 });
 
+// --- Domain metrics ---------------------------------------------------------
+// Under Scenario A these tell the story at a glance: attempted should equal
+// won + conflict, won should be exactly 1 per contended seat.
+
+export const holdsAttempted = new client.Counter({
+  name: 'holds_attempted_total',
+  help: 'Hold requests received',
+  registers: [registry],
+});
+
+export const holdsWon = new client.Counter({
+  name: 'holds_won_total',
+  help: 'Hold requests that successfully claimed every requested seat',
+  registers: [registry],
+});
+
+export const holdsConflict = new client.Counter({
+  name: 'holds_conflict_total',
+  help: 'Hold requests rejected because a seat was already taken',
+  registers: [registry],
+});
+
+export const callbacksTotal = new client.Counter({
+  name: 'gateway_callbacks_total',
+  help: 'Gateway callbacks received, split by whether they were duplicates',
+  labelNames: ['dedup'] as const,      // 'hit' = duplicate suppressed
+  registers: [registry],
+});
+
 const jobsQueued = new client.Gauge({
   name: 'jobs_queued',
   help: 'Jobs currently waiting in the queue',
