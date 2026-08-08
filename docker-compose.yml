@@ -81,7 +81,7 @@ services:
       target: runtime
       args:
         BUILD_SHA: ${BUILD_SHA:-dev}
-    image: ${PROJECT_NAME:-cinemaseat}-app:latest
+    image: ${PROJECT_NAME:-cinemaseat}-app:${BUILD_SHA:-dev}
     restart: unless-stopped
     env_file: *env-file
     environment:
@@ -121,7 +121,7 @@ services:
       target: runtime
       args:
         BUILD_SHA: ${BUILD_SHA:-dev}
-    image: ${PROJECT_NAME:-cinemaseat}-app:latest
+    image: ${PROJECT_NAME:-cinemaseat}-app:${BUILD_SHA:-dev}
     restart: unless-stopped
     command: ["node", "dist/worker.js"]
     env_file: *env-file
@@ -145,6 +145,9 @@ services:
       context: ./web
       args:
         VITE_API_URL: ${VITE_API_URL:-/api}
+    # Tagged by commit for the same reason as the app image: a fixed tag lets
+    # compose leave a stale container running after a rebuild.
+    image: ${PROJECT_NAME:-cinemaseat}-web:${BUILD_SHA:-dev}
     restart: unless-stopped
     labels:
       - traefik.enable=true
@@ -215,7 +218,7 @@ services:
       target: runtime
       args:
         BUILD_SHA: ${BUILD_SHA:-dev}
-    image: ${PROJECT_NAME:-cinemaseat}-app:latest
+    image: ${PROJECT_NAME:-cinemaseat}-app:${BUILD_SHA:-dev}
     command: ["node", "dist/db/migrate.js"]
     restart: "no"
     env_file: *env-file
@@ -228,7 +231,7 @@ services:
     networks: [internal]
 
   seed:
-    image: ${PROJECT_NAME:-cinemaseat}-app:latest
+    image: ${PROJECT_NAME:-cinemaseat}-app:${BUILD_SHA:-dev}
     command: ["node", "dist/db/seed.js"]
     restart: "no"
     env_file: *env-file
