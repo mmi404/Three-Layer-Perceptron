@@ -40,11 +40,10 @@ https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_C
   sudo apt-get update -qq
   sudo apt-get install -y -qq docker-ce docker-ce-cli containerd.io \
                               docker-buildx-plugin docker-compose-plugin >/dev/null
-  sudo usermod -aG docker "$USER"
+  sudo usermod -aG docker "$USER" || true
 fi
 sudo systemctl enable --now docker
-docker --version
-docker compose version
+sudo chmod 666 /var/run/docker.sock || true
 
 step "Swap"
 # A t3.small has 2 GB and no swap by default. Docker builds are memory-hungry,

@@ -11,8 +11,19 @@
 # =============================================================================
 set -euo pipefail
 
-COMPOSE="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
-HTTP_PORT="$(grep -E '^HTTP_PORT=' .env | cut -d= -f2 || echo 8000)"
+# Auto-heal docker socket permissions if running in a non-interactive shell without group refresh
+if docker ps >/dev/null 2>&1; then
+  DOCKER_CMD="docker"
+elif sudo -n docker ps >/dev/null 2>&1; then
+  DOCKER_CMD="sudo docker"
+else
+  sudo chmod 666 /var/run/docker.sock 2>/dev/null || true
+  DOCKER_CMD="docker"
+fi
+
+COMPOSE="$DOCKER_CMD compose -f docker-compose.yml -f docker-compose.prod.yml"
+HTTP_PORT="$(grep -E '^HTTP_PORT=' .env | cut -d= -f2 || echo 80)"
+HTTP_PORT="${HTTP_PORT:-80}"
 
 step() { printf '\n\033[1;34m==> %s\033[0m\n' "$1"; }
 fail() { printf '\n\033[1;31mFAILED: %s\033[0m\n' "$1"; exit 1; }

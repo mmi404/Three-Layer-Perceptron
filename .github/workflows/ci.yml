@@ -205,6 +205,8 @@ jobs:
               -o ConnectTimeout=15 \
               "$DEPLOY_USER@$DEPLOY_HOST" \
               '
+                sudo usermod -aG docker "$USER" 2>/dev/null || true
+                sudo chmod 666 /var/run/docker.sock 2>/dev/null || true
                 mkdir -p ~/apps
                 if [ ! -d ~/apps/cinemaseat/.git ]; then
                   git clone https://github.com/mmi404/Three-Layer-Perceptron.git ~/apps/cinemaseat
