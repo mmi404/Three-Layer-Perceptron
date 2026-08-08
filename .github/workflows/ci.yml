@@ -134,6 +134,7 @@ jobs:
 
       - name: Migrations and seed ran automatically
         run: |
+          docker compose wait seed || true
           docker compose ps -a
           test "$(docker compose ps -a --status exited --format '{{.Name}} {{.ExitCode}}' | grep -c ' 0$')" -ge 2
 
