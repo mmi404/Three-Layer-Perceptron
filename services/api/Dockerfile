@@ -9,7 +9,7 @@ FROM node:22.12-alpine AS deps
 WORKDIR /app
 # Copy manifests FIRST so this layer caches until dependencies actually change.
 COPY package.json package-lock.json* ./
-RUN npm ci
+RUN npm ci || npm install
 
 # --- build: compile TypeScript ------------------------------------------------
 FROM node:22.12-alpine AS build
@@ -22,7 +22,7 @@ RUN npm run build
 FROM node:22.12-alpine AS prod-deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN (npm ci --omit=dev || npm install --omit=dev) && npm cache clean --force
 
 # --- runtime: minimal final image ---------------------------------------------
 FROM node:22.12-alpine AS runtime
