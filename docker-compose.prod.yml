@@ -16,15 +16,11 @@
 # =============================================================================
 
 services:
-  traefik:
-    # HTTP_PORT must be a free port. On a box where :80/:443 already belong to
-    # another stack, 8000 is the one ufw already allows.
-    # 256M, not 128M: measured at 64M idle, and proxy memory grows with
-    # concurrent connections. Headroom is cheap at 5.8 GB free.
+  proxy:
     deploy:
       resources:
         limits:
-          memory: 256M
+          memory: 128M
     logging: &logging
       driver: json-file
       options: { max-size: "10m", max-file: "3" }

@@ -56,7 +56,7 @@ for i in $(seq 1 30); do
   if [ "$i" = 30 ]; then
     echo "  Last status code: $STATUS"
     $COMPOSE ps
-    $COMPOSE logs --tail 30 api traefik
+    $COMPOSE logs --tail 30 api proxy
     fail "/health never came up (HTTP $STATUS). Check logs above."
   fi
   sleep 2
