@@ -1,0 +1,13 @@
+# Force LF everywhere. Developed on Windows, runs on Linux containers —
+# a CRLF shebang makes a shell script fail with "bad interpreter".
+* text=auto eol=lf
+
+*.sh      text eol=lf
+Dockerfile text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.sql     text eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary

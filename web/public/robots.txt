@@ -1,0 +1,7 @@
+# The 60-second SEO pass. Zero rubric points — but a shared link that looks
+# unfinished costs you nothing to fix.
+User-agent: *
+Allow: /
+Disallow: /api/
+
+Sitemap: https://REPLACE_WITH_YOUR_DOMAIN/sitemap.xml

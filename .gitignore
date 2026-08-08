@@ -1,0 +1,25 @@
+node_modules/
+dist/
+build/
+coverage/
+*.log
+.DS_Store
+
+# Secrets — .env.example IS committed, .env is NOT
+.env
+.env.*
+!.env.example
+
+# Local key material (EC2 pem, deploy keys)
+*.pem
+*.key
+id_rsa*
+
+.vscode/
+.idea/
+*.local
+.vite/
+
+# Load test artifacts
+loadtest/results/
+*.k6.json

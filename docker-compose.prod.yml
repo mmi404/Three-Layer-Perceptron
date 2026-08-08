@@ -1,0 +1,68 @@
+# =============================================================================
+#  PRODUCTION OVERRIDE — for deploying onto a VPS that already runs other sites.
+#
+#    docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+#  Use deploy.sh, which does this for you.
+#
+#  What this changes and why:
+#    1. Postgres gets NO published port at all. Nothing outside the compose
+#       network needs it. (Docker's iptables rules sit ahead of ufw's, so a
+#       published port is internet-reachable even when ufw says deny.)
+#    2. Hard memory limits on every service. The target VPS has NO SWAP, so an
+#       untethered container can trigger the OOM killer — which may choose a
+#       neighbouring production container rather than ours.
+#    3. Log rotation, so a chatty container cannot fill the disk.
+# =============================================================================
+
+services:
+  traefik:
+    # HTTP_PORT must be a free port. On a box where :80/:443 already belong to
+    # another stack, 8000 is the one ufw already allows.
+    # 256M, not 128M: measured at 64M idle, and proxy memory grows with
+    # concurrent connections. Headroom is cheap at 5.8 GB free.
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    logging: &logging
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  api:
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging: *logging
+
+  worker:
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    logging: *logging
+
+  web:
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    logging: *logging
+
+  postgres:
+    # Remove the host port mapping entirely. Reach it with:
+    #   docker compose exec postgres psql -U $POSTGRES_USER -d $POSTGRES_DB
+    ports: !reset null
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging: *logging
+
+  redis:
+    deploy:
+      resources:
+        limits:
+          memory: 320M     # 256M maxmemory + headroom for the process itself
+    logging: *logging

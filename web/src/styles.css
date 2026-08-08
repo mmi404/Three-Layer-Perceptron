@@ -1,0 +1,78 @@
+:root {
+  --bg: #0b1020;
+  --panel: #141a2e;
+  --border: #26304d;
+  --text: #e8ecf7;
+  --muted: #97a3c0;
+  --accent: #6ea8fe;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+main { max-width: 720px; margin: 0 auto; padding: 48px 20px; }
+
+h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: -0.02em; }
+.sub { color: var(--muted); margin: 4px 0 0; }
+
+.list { list-style: none; padding: 0; margin: 24px 0 0; display: grid; gap: 12px; }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin-top: 12px;
+}
+
+.card.error { border-color: #6b2b3a; }
+
+.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+.badge {
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.badge.active { color: #7ee2a8; border-color: #2c5a41; }
+.badge.draft { color: var(--accent); border-color: #2f4670; }
+
+button {
+  background: var(--accent);
+  color: #0b1020;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Skeleton loader — shows shape while data is in flight. */
+.skeleton {
+  height: 14px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #1b2237 25%, #232c46 50%, #1b2237 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  margin-bottom: 10px;
+}
+.skeleton.short { width: 60%; margin-bottom: 0; }
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+}
