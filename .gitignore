@@ -2,8 +2,10 @@ node_modules/
 dist/
 build/
 coverage/
+plan/
 *.log
 .DS_Store
+
 
 # Secrets — .env.example IS committed, .env is NOT
 .env
