@@ -310,58 +310,28 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           ) : (
             /* Step 2: 6-Digit OTP Verification */
             <form onSubmit={handleVerifyOTP} className="space-y-4 animate-fade-in">
-              <div className="p-3.5 rounded-2xl bg-brand-500/10 border border-brand-500/30 text-xs text-brand-300 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold">SMS Sent to {userPhone}</span>
-                  <button
-                    type="button"
-                    onClick={() => setOtpStep('PHONE_INPUT')}
-                    className="text-xs text-gray-400 hover:text-white underline"
-                  >
-                    Change
-                  </button>
+              {generatedOtp && (
+                <div className="text-center py-4 px-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 shadow-inner">
+                  <span className="text-3xl sm:text-4xl font-black text-emerald-400 font-mono tracking-[0.35em] block select-all">
+                    {generatedOtp}
+                  </span>
+                  <span className="text-[11px] text-emerald-300/80 font-medium mt-1.5 block">
+                    Your 6-Digit Verification Code
+                  </span>
                 </div>
-                {generatedOtp && (
-                  <div className="flex items-center justify-center gap-3 py-2 px-3 rounded-xl bg-dark-800/80 border border-emerald-500/40">
-                    <span className="text-[10px] text-gray-400 uppercase font-bold">Your OTP Code:</span>
-                    <span className="text-2xl font-black text-emerald-400 font-mono tracking-[0.4em]">{generatedOtp}</span>
-                  </div>
-                )}
-              </div>
+              )}
 
               <div className="space-y-1.5">
-                <label className="text-xs font-extrabold text-gray-300 flex items-center gap-1.5">
-                  <KeyRound className="w-3.5 h-3.5 text-brand-400" />
-                  <span>Enter 6-Digit Verification Code</span>
-                </label>
                 <input
                   type="text"
                   maxLength={6}
                   value={otpCode}
                   onChange={(e) => setOtpCode(e.target.value)}
-                  placeholder=""
+                  placeholder="Enter 6-digit code"
                   required
                   autoFocus
-                  className="w-full bg-dark-800 text-white px-4 py-3 rounded-xl border border-gray-700 text-lg font-mono tracking-widest text-center focus:border-brand-500 focus:outline-none"
+                  className="w-full bg-dark-800 text-white px-4 py-3.5 rounded-xl border border-gray-700 text-xl font-mono tracking-[0.25em] text-center focus:border-emerald-500 focus:outline-none placeholder:tracking-normal placeholder:text-sm placeholder:text-gray-500"
                 />
-              </div>
-
-              {/* Chaos Misbehavior Header Selector for Judges */}
-              <div className="p-3 rounded-xl bg-dark-900 border border-gray-800 space-y-1 text-xs">
-                <label className="text-[10px] uppercase font-bold text-gray-400 block">
-                  Judges Gateway Test Mode (`X-Debug-Force`):
-                </label>
-                <select
-                  value={selectedMockHeader}
-                  onChange={(e) => setSelectedMockHeader(e.target.value)}
-                  className="w-full bg-dark-800 text-gray-200 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs focus:border-brand-500 focus:outline-none"
-                >
-                  <option value="NORMAL">Standard Gateway Settlement (200 OK)</option>
-                  <option value="FAIL">Inject Gateway Failure (402 Payment Required)</option>
-                  <option value="TIMEOUT">Inject Network Timeout (504 Gateway)</option>
-                  <option value="DUPLICATE">Simulate Replay / Duplicate Webhook Callback</option>
-                  <option value="RACE">Simulate Race-Condition on Lock Expiration</option>
-                </select>
               </div>
 
               <button
