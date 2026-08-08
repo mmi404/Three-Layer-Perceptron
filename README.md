@@ -388,9 +388,27 @@ Database integrity afterwards: one payment per booking, at most one `SUCCEEDED`,
   ✓ catalog.rules.test.ts         5 tests
 ```
 
-### Scenario C — breakpoint
+### Scenario C — breakpoint (bonus)
 
-Not completed. See [What does not work](#what-does-not-work).
+Harness ready: `python loadtest/scenario-c.py http://<deployed-host>`
+
+It ramps 5 → 220 concurrent users against the seat map (add `--writes` for an
+80/20 read/write mix), reports p50/p95/p99 and error rate per stage, and
+identifies the knee — the first stage where p95 climbs but throughput stops
+scaling. It also prints the exact commands to run on the server *during* the
+top stage, and how to read them:
+
+| Observation | Bottleneck |
+|---|---|
+| `pg_stat_activity` full at ~10 per replica | connection pool exhausted |
+| Postgres CPU pinned, api idle | database-bound |
+| api CPU pinned, `nodejs_eventloop_lag` climbing | blocked event loop |
+| Both idle, latency still high | waiting on row locks |
+
+**We are not reporting numbers from a localhost run.** The problem statement is
+explicit that a load generator sharing CPUs with the application measures the
+load generator, and our dev box does exactly that — the script prints a warning
+when pointed at localhost. Numbers here will be from the deployed instance.
 
 ---
 
@@ -448,7 +466,7 @@ Rate-limit counters live in Redis precisely because of this — in-process count
 
 Stated honestly.
 
-- **Scenario C (breakpoint) not run.** We know from Scenario A that the contended-seat path serialises at ~1 s p50 for 100 buyers, but we have not ramped to find the knee or attributed the bottleneck. Our expectation is the Postgres connection pool first (10 per replica), then hot-row contention — but an untested expectation is worth nothing, which is why we are not claiming it as a result.
+- **Scenario C numbers are not from the deployed instance yet.** The harness works and finds a knee, but every run so far has been on a dev box where the load generator competes with the API for the same CPUs — which the problem statement rightly says measures the wrong thing. Our expectation is the Postgres connection pool first (10 per replica), then hot-row contention; an untested expectation is worth nothing, so we are not claiming it as a result.
 - **Job queue is at-most-once.** A job popped by a worker that then crashes is lost. At-least-once needs `BRPOPLPUSH` onto a processing list plus an ack. Only refunds use the queue, and they are also retried by the reconciler, so nothing is silently dropped in practice.
 - **Rate limiting uses a fixed window**, which permits a 2× burst across a window boundary.
 - **The circuit breaker is per-process.** With three replicas each trips independently, so a dead gateway costs up to 3×3 slow calls instead of 3. A Redis-backed breaker would fix it.
