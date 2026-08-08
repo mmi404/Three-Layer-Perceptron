@@ -130,7 +130,7 @@ jobs:
       - name: Bring the whole stack up from a clean clone
         run: |
           export BUILD_SHA=$(git rev-parse --short HEAD)
-          docker compose up -d --build --wait --wait-timeout 300
+          docker compose up -d --build
 
       - name: Migrations and seed ran automatically
         run: |
