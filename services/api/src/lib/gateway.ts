@@ -24,6 +24,59 @@ export class GatewayUnavailable extends Error {
   }
 }
 
+/**
+ * CIRCUIT BREAKER.
+ *
+ * With the gateway container stopped, every call costs ~4 seconds before it
+ * fails — Docker's DNS takes that long to give up on a name that no longer
+ * resolves. Under load that is far worse than it sounds: each of those calls
+ * occupies a request slot for 4s, so a dead dependency quietly consumes the
+ * whole API's capacity even though nothing it does can possibly succeed.
+ *
+ * After CB_THRESHOLD consecutive failures we stop dialling for CB_COOLDOWN_MS
+ * and fail instantly instead. One probe is allowed through after the cooldown
+ * (half-open); a success closes the circuit again.
+ *
+ * The user-visible effect: a 4s hang becomes an immediate, honest 503.
+ */
+const CB_THRESHOLD = 3;
+const CB_COOLDOWN_MS = 10_000;
+
+const breaker = { failures: 0, openedAt: 0 };
+
+function circuitOpen(): boolean {
+  if (breaker.failures < CB_THRESHOLD) return false;
+  if (Date.now() - breaker.openedAt >= CB_COOLDOWN_MS) {
+    // Half-open: let exactly one request through to test the water.
+    breaker.failures = CB_THRESHOLD - 1;
+    return false;
+  }
+  return true;
+}
+
+function recordSuccess(): void {
+  if (breaker.failures > 0) {
+    logger.info('Gateway recovered, circuit closed');
+    breaker.failures = 0;
+  }
+}
+
+function recordFailure(): void {
+  breaker.failures++;
+  if (breaker.failures === CB_THRESHOLD) {
+    breaker.openedAt = Date.now();
+    logger.warn(
+      { cooldownMs: CB_COOLDOWN_MS },
+      'Gateway circuit opened; failing fast instead of waiting on a dead dependency',
+    );
+  }
+}
+
+/** Exposed for /ready-style diagnostics and tests. */
+export function circuitState(): 'closed' | 'open' {
+  return circuitOpen() ? 'open' : 'closed';
+}
+
 /** Force headers let judges test every team under identical conditions. */
 export type ForceMode = 'fail' | 'duplicate' | 'timeout' | 'race' | 'success';
 
@@ -39,6 +92,9 @@ async function call<T>(
   body: unknown,
   force?: ForceMode,
 ): Promise<{ ok: true; status: number; data: T } | { ok: false; status: number; error: string }> {
+  if (circuitOpen()) {
+    return { ok: false, status: 0, error: 'circuit open (gateway is down)' };
+  }
   try {
     const res = await fetch(`${env.GATEWAY_URL}${path}`, {
       method: 'POST',
@@ -47,11 +103,18 @@ async function call<T>(
       signal: AbortSignal.timeout(env.GATEWAY_TIMEOUT_MS),
     });
     const data = (await res.json().catch(() => null)) as T;
+
+    // A 4xx is the gateway working correctly and rejecting us; only transport
+    // failures and 5xx count against the breaker.
+    if (res.status >= 500) recordFailure();
+    else recordSuccess();
+
     if (!res.ok) {
       return { ok: false, status: res.status, error: JSON.stringify(data ?? res.statusText) };
     }
     return { ok: true, status: res.status, data };
   } catch (err) {
+    recordFailure();
     const reason =
       err instanceof Error && err.name === 'TimeoutError' ? 'timeout' : String(err);
     return { ok: false, status: 0, error: reason };

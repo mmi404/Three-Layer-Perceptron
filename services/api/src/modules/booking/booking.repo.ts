@@ -14,6 +14,7 @@ type LockedSeat = {
   price_cents: number;
   hold_expires_at: Date | null;
   label: string;
+  booking_id: string | null;
 };
 
 /**
@@ -49,7 +50,7 @@ export async function holdSeats(
     // --- 1. Lock the contended rows, in a deterministic order ---------------
     const locked = await c.query<LockedSeat>(
       `SELECT ss.seat_id, ss.status, ss.price_cents, ss.hold_expires_at,
-              s.row_label || s.col_num AS label
+              ss.booking_id, s.row_label || s.col_num AS label
          FROM show_seats ss
          JOIN seats s ON s.id = ss.seat_id
         WHERE ss.showtime_id = $1 AND ss.seat_id = ANY($2::uuid[])
@@ -104,6 +105,26 @@ export async function holdSeats(
           status: r.status === 'PENDING_PAYMENT' ? 'HELD' : r.status,
         })),
       });
+    }
+
+    // --- 5. Expire whoever we just took these seats from ---------------------
+    // Claiming a timed-out seat and leaving its previous booking sitting at
+    // HELD would leave that buyer's booking claiming a seat it no longer owns.
+    // Doing it here, in the same transaction, means the two can never disagree
+    // — and it does not wait for the sweeper.
+    const previousOwners = [
+      ...new Set(
+        locked.rows
+          .filter((r) => r.booking_id !== null && r.status === 'HELD')
+          .map((r) => r.booking_id as string),
+      ),
+    ];
+    if (previousOwners.length > 0) {
+      await c.query(
+        `UPDATE bookings SET status = 'EXPIRED', expires_at = NULL
+          WHERE id = ANY($1::uuid[]) AND status = 'HELD'`,
+        [previousOwners],
+      );
     }
 
     return {

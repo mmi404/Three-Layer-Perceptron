@@ -208,6 +208,15 @@ describe('abandoned holds', () => {
       [row.booking_id],
     );
     expect(owner.booking_ref).toBe(second.booking_ref);
+
+    // ...and buyer 1's booking is marked EXPIRED in the SAME transaction that
+    // took the seat away, not eventually by the sweeper. Otherwise a dead
+    // worker would leave buyer 1 believing they still hold a seat they lost.
+    const [loser] = await query<{ status: string }>(
+      `SELECT status FROM bookings WHERE booking_ref = $1`,
+      [first.booking_ref],
+    );
+    expect(loser.status).toBe('EXPIRED');
   });
 
   it('sweeper releases expired holds and marks the booking EXPIRED', async () => {
