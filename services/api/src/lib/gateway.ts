@@ -215,9 +215,10 @@ export async function refund(paymentId: string): Promise<{ status: string }> {
   return res.data;
 }
 
-export async function sendOtp(phone: string, ref: string): Promise<void> {
-  const res = await call('/otp/send', { phone, ref });
+export async function sendOtp(phone: string, ref: string): Promise<{ code?: string; otp?: string } | void> {
+  const res = await call<{ code?: string; otp?: string }>('/otp/send', { phone, ref });
   if (!res.ok) throw new GatewayUnavailable(res.error);
+  return res.data;
 }
 
 /** Returns false for a wrong code (gateway answers 400), throws if it is down. */

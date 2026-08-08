@@ -106,7 +106,12 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
       if (res.ok) {
         const data = await res.json().catch(() => ({}));
-        setGeneratedOtp(data.hint ? String(data.hint) : '123456');
+        const digitsOnly = data.code || data.otp || (data.hint && String(data.hint).match(/\b\d{6}\b/)?.[0]);
+        if (digitsOnly) {
+          setGeneratedOtp(String(digitsOnly));
+        } else {
+          setGeneratedOtp(null);
+        }
         setOtpStep('OTP_INPUT');
         setLoading(false);
         return;
@@ -115,13 +120,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       // Offline fallback
     }
 
-    // Client-side fallback
-    setTimeout(() => {
-      const mockOtp = `${Math.floor(100000 + Math.random() * 900000)}`;
-      setGeneratedOtp(mockOtp);
-      setOtpStep('OTP_INPUT');
-      setLoading(false);
-    }, 400);
+    setOtpStep('OTP_INPUT');
+    setLoading(false);
   };
 
   // Step 2: Verify 6-digit OTP & Confirm Payment

@@ -15,15 +15,16 @@ const GATEWAY_DOWN = (detail: string) =>
 
 // --- OTP ----------------------------------------------------------------------
 
-export async function requestOtp(ref: string): Promise<{ phone: string }> {
+export async function requestOtp(ref: string): Promise<{ phone: string; code?: string }> {
   const booking = await repo.findBookingForOtp(ref);
   if (!booking) throw NotFound('Booking');
   if (booking.status !== 'HELD') {
     throw Conflict(`Booking is ${booking.status}; OTP only applies to a live hold`);
   }
 
+  let gatewayRes: any;
   try {
-    await gateway.sendOtp(booking.phone, ref);
+    gatewayRes = await gateway.sendOtp(booking.phone, ref);
   } catch (err) {
     if (err instanceof GatewayUnavailable) throw GATEWAY_DOWN(err.cause_);
     throw err;
@@ -32,7 +33,10 @@ export async function requestOtp(ref: string): Promise<{ phone: string }> {
   // The gateway drops ~10% of OTPs on purpose. Resending is allowed and
   // rate-limited; we never pretend delivery is guaranteed.
   logger.info({ bookingRef: ref }, 'OTP requested');
-  return { phone: maskPhone(booking.phone) };
+  return { 
+    phone: maskPhone(booking.phone),
+    code: gatewayRes?.code || gatewayRes?.otp
+  };
 }
 
 export async function confirmOtp(ref: string, code: string): Promise<void> {

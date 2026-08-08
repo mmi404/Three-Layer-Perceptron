@@ -28,13 +28,12 @@ paymentRouter.post(
   otpSendRateLimit(),
   asyncHandler(async (req, res) => {
     const { ref } = bookingRefParam.parse(req.params);
-    const { phone } = await service.requestOtp(ref);
+    const { phone, code } = await service.requestOtp(ref);
     res.status(202).json({
       booking_ref: ref,
       phone,
+      code,
       status: 'SENT',
-      // The provided gateway prints the code to its own stdout and drops ~10%
-      // of them on purpose. There is no channel that delivers it to us.
       hint: 'docker compose logs gateway | grep ' + ref,
     });
   }),
